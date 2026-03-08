@@ -1,62 +1,97 @@
+import pandas as pd
 import streamlit as st
-from medication_service import add_medication, get_all_medications, delete_medication
-from datetime import datetime
 
-st.set_page_config(page_title="Healthcare AI Agent", page_icon="🏥")
+from src.chatbot import HealthChatbot
+from src.database import (
+    add_health_metric,
+    add_medication,
+    deactivate_medication,
+    init_db,
+    list_medications,
+    list_recent_metrics,
+)
+from src.health_parser import parse_metric_input
+from src.medication import upcoming_reminders
 
-st.title("🏥 Healthcare Monitoring AI Agent")
+st.set_page_config(page_title="Healthcare AI Agent - Track A", layout="wide")
 
-menu = st.sidebar.selectbox("Navigation", ["Add Medication", "View Medications"])
+init_db()
+chatbot = HealthChatbot()
 
-# ---------------- ADD MEDICATION ---------------- #
+st.title("Healthcare Monitoring AI Agent (Track A)")
+st.caption("Week 1 implementation: medication scheduler, health metrics, and basic health chatbot")
 
-if menu == "Add Medication":
+medications = list_medications(active_only=True)
+alerts = upcoming_reminders(medications, window_minutes=60)
+if alerts:
+    for alert in alerts:
+        st.warning(f"Reminder: {alert}")
+else:
+    st.info("No medication reminders in the next hour.")
 
-    st.subheader("➕ Add New Medication")
+tab1, tab2, tab3 = st.tabs(["Health Chat", "Medication Scheduler", "Health Metrics"])
 
-    name = st.text_input("Medicine Name")
-    dosage = st.text_input("Dosage (e.g., 500mg)")
-    time = st.time_input("Time to Take")
-    frequency = st.selectbox("Frequency", ["Daily", "Weekly"])
-    start_date = st.date_input("Start Date")
-    end_date = st.date_input("End Date")
+with tab1:
+    st.subheader("Basic Health Chatbot")
+    question = st.text_input("Ask a health-related question", placeholder="How can I track my steps better?")
+    if st.button("Get Guidance", type="primary"):
+        response = chatbot.answer(question)
+        st.write(response)
 
-    if st.button("Save Medication"):
-        if name and dosage:
-            add_medication(name, dosage, str(time), frequency, start_date, end_date)
-            st.success("Medication added successfully!")
+with tab2:
+    st.subheader("Medication Reminder Setup")
+    with st.form("medication_form"):
+        med_name = st.text_input("Medicine name")
+        dosage = st.text_input("Dosage", placeholder="500 mg")
+        schedule = st.time_input("Schedule time")
+        notes = st.text_input("Notes (optional)")
+        submitted = st.form_submit_button("Add Medication")
+
+    if submitted:
+        if med_name.strip() and dosage.strip():
+            add_medication(med_name.strip(), dosage.strip(), schedule.strftime("%H:%M"), notes.strip())
+            st.success("Medication schedule added.")
+            st.rerun()
         else:
-            st.error("Please fill all required fields.")
+            st.error("Medicine name and dosage are required.")
 
-# ---------------- VIEW MEDICATIONS ---------------- #
+    st.markdown("### Active Schedules")
+    for medication in medications:
+        cols = st.columns([4, 2, 2, 1])
+        cols[0].write(f"**{medication['name']}** ({medication['dosage']})")
+        cols[1].write(medication["schedule_time"])
+        cols[2].write(medication["notes"] or "-")
+        if cols[3].button("Done", key=f"done_{medication['id']}"):
+            deactivate_medication(medication["id"])
+            st.rerun()
 
-elif menu == "View Medications":
+with tab3:
+    st.subheader("Health Metrics Logger")
+    with st.form("metric_form"):
+        metric_name = st.selectbox("Metric", ["steps", "heart_rate", "weight", "sleep_hours", "water_intake"])
+        metric_value = st.text_input("Value", placeholder="e.g., 6500")
+        unit = st.text_input("Unit", placeholder="steps / bpm / kg / hours / liters")
+        metric_submit = st.form_submit_button("Save Metric")
 
-    st.subheader("📋 Your Medications")
+    if metric_submit:
+        try:
+            clean_name, value, clean_unit, timestamp = parse_metric_input(metric_name, metric_value, unit)
+            add_health_metric(clean_name, value, clean_unit, timestamp)
+            st.success("Health metric saved.")
+            st.rerun()
+        except ValueError as error:
+            st.error(str(error))
 
-    medications = get_all_medications()
+    records = list_recent_metrics(limit=50)
+    if records:
+        dataframe = pd.DataFrame(records, columns=["metric_name", "metric_value", "unit", "recorded_at"])
+        st.dataframe(dataframe, use_container_width=True)
 
-    if not medications:
-        st.info("No medications added yet.")
-
-    for med in medications:
-        col1, col2 = st.columns([4, 1])
-
-        with col1:
-            st.write(
-                f"💊 **{med['name']}** | {med['dosage']} | {med['time']} | {med['frequency']}"
-            )
-
-        with col2:
-            if st.button("Delete", key=str(med["_id"])):
-                delete_medication(str(med["_id"]))
-                st.rerun()
-
-
-# ---------------- REMINDER LOGIC ---------------- #
-
-current_time = datetime.now().strftime("%H:%M:%S")
-
-for med in get_all_medications():
-    if med["time"] == current_time:
-        st.warning(f"⏰ Time to take {med['name']} - {med['dosage']}")
+        st.markdown("### Recent Trend")
+        metric_filter = st.selectbox("Choose metric", sorted(dataframe["metric_name"].unique()))
+        filtered = dataframe[dataframe["metric_name"] == metric_filter].copy()
+        filtered["recorded_at"] = pd.to_datetime(filtered["recorded_at"])
+        filtered = filtered.sort_values("recorded_at")
+        st.line_chart(filtered.set_index("recorded_at")["metric_value"])
+    else:
+        st.info("No metrics logged yet.")

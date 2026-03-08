@@ -1,150 +1,66 @@
-# 🏥 Healthcare Monitoring AI Agent
+# Healthcare Monitoring AI Agent - Track A (Week 1)
 
-An AI-powered personal health assistant that helps users track medications, monitor schedules, and manage basic health data using MongoDB and Streamlit.
+This repo implements **Track A** for the Healthcare Monitoring AI Agent project and covers the first-week deliverables.
 
----
+## What is completed (Week 1 scope)
 
-## 🚀 Project Overview
+- Project structure with Python + Streamlit + pandas + LangChain dependencies
+- Basic health chatbot (safe, non-diagnostic guidance)
+- Medication scheduler with reminder alerts
+- Health metrics parser and storage
+- MongoDB database for medication and health metrics
 
-This project is part of an 8-week Healthcare AI Development track.
+## Project structure
 
-The system allows users to:
-- Add and manage medications
-- Store structured health data
-- Receive time-based reminders
-- Persist data using MongoDB
-- Access a clean dashboard built with Streamlit
+- `app.py` - Streamlit dashboard
+- `src/database.py` - MongoDB collections and CRUD helpers
+- `src/health_parser.py` - metric input parsing and validation
+- `src/medication.py` - reminder logic
+- `src/chatbot.py` - chatbot with optional LangChain/OpenAI
+- `requirements.txt` - dependencies
 
----
+## Setup
 
-## 🛠️ Tech Stack
-
-- Python
-- Streamlit
-- MongoDB
-- PyMongo
-- dotenv
-
----
-
-## 📂 Project Structure
-
-```
-healthcare-ai-agent/
-│
-├── app.py
-├── db.py
-├── medication_service.py
-├── models.py
-├── requirements.txt
-├── .env (not pushed)
-└── README.md
-```
-
----
-
-## ⚙️ Features (Week 1)
-
-✅ Add medication  
-✅ Store medication in MongoDB  
-✅ View all medications  
-✅ Delete medications  
-✅ Time-based reminder alerts  
-✅ Structured health data parsing  
-
----
-
-## 🧠 Architecture
-
-- **Database Layer** → `db.py`
-- **Data Model Layer** → `models.py`
-- **Business Logic Layer** → `medication_service.py`
-- **Frontend/UI Layer** → `app.py`
-
-This layered design ensures scalability for future upgrades like:
-- Fitness data integration
-- AI chatbot
-- Nutrition tracking
-- Health analytics dashboard
-
----
-
-## 🗄️ Database
-
-MongoDB collection: `medications`
-
-Example stored document:
-
-```json
-{
-  "_id": ObjectId("..."),
-  "name": "Paracetamol",
-  "dosage": "500mg",
-  "time": "09:00:00",
-  "frequency": "Daily",
-  "start_date": "2026-03-01",
-  "end_date": "2026-03-10",
-  "created_at": "2026-03-01T..."
-}
-```
-
----
-
-## ▶️ How to Run Locally
-
-1. Clone repository:
-
-```bash
-git clone https://github.com/yourusername/healthcare-ai-agent.git
-cd healthcare-ai-agent
-```
-
+1. Create and activate a virtual environment (recommended).
 2. Install dependencies:
 
-```bash
+```powershell
 pip install -r requirements.txt
 ```
 
-3. Create `.env` file:
+3. Optional LLM setup:
 
+```powershell
+copy .env.example .env
 ```
-MONGO_URI=mongodb://127.0.0.1:27017/
-```
 
-4. Run application:
+Set in `.env`:
 
-```bash
+- `USE_LLM=true`
+- `OPENAI_API_KEY=your_key_here`
+- `MONGODB_URI=mongodb://localhost:27017`
+- `MONGODB_DB_NAME=healthcare_agent`
+
+If not set, chatbot uses built-in fallback responses.
+
+4. Ensure MongoDB is running locally (or use a MongoDB Atlas URI).
+
+## Run
+
+```powershell
 streamlit run app.py
 ```
 
----
+## Week 1 demo flow
 
-## ☁️ Deployment
+1. Add 2-3 medications with schedule times.
+2. Add health metrics (steps, heart rate, weight).
+3. Open Health Chat and ask simple health questions.
+4. Show reminders and metric trend chart.
 
-This project can be deployed using:
-- Streamlit Community Cloud
-- MongoDB Atlas (Cloud Database)
+## Next for Week 2
 
----
-
-## ⚠️ Disclaimer
-
-This application is for educational purposes only.  
-It does not replace professional medical advice.
-
----
-
-## 📌 Future Improvements
-
-- User authentication
-- Cloud database integration
-- AI health chatbot
-- Fitness data integration (Google Fit / Fitbit)
-- Nutrition tracking
-- Health analytics dashboard
-
----
-
-## 👨‍💻 Author
-
-Developed as part of Healthcare AI Agent Development Project.
+- Add health data API integration (Google Fit/Fitbit mock or real)
+- Add medication adherence % summary
+- Deploy to Streamlit Cloud
+- Record 2-minute demo video
