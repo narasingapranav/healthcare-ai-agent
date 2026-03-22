@@ -191,6 +191,13 @@ with tab3:
 
 with tab4:
     st.subheader("Health Goals and Progress")
+    progress_mode = st.radio(
+        "Progress Mode",
+        ["Latest", "Daily", "Monthly"],
+        horizontal=True,
+        help="Latest uses the most recent value. Daily and Monthly use summed values for the selected period.",
+    )
+
     with st.form("goal_form"):
         goal_metric = st.selectbox(
             "Goal Metric",
@@ -209,19 +216,36 @@ with tab4:
             st.error("Target value must be > 0 and unit is required.")
 
     goals = list_health_goals(active_only=True)
-    metrics = list_recent_metrics(limit=200)
-    latest_metrics: dict[str, dict] = {}
-    for item in metrics:
-        metric = str(item.get("metric_name", ""))
-        if metric and metric not in latest_metrics:
-            latest_metrics[metric] = item
+    metrics = list_all_metrics()
+    metric_df = pd.DataFrame(metrics, columns=["metric_name", "metric_value", "unit", "recorded_at"])
+    if not metric_df.empty:
+        metric_df["recorded_at"] = pd.to_datetime(metric_df["recorded_at"], errors="coerce")
+        metric_df = metric_df.dropna(subset=["recorded_at"])
+        metric_df = metric_df.sort_values("recorded_at", ascending=False)
 
     if goals:
         for goal in goals:
             metric_name = goal["metric_name"]
             target_value = float(goal["target_value"])
-            latest = latest_metrics.get(metric_name)
-            current_value = float(latest.get("metric_value", 0)) if latest else 0.0
+
+            current_value = 0.0
+            if not metric_df.empty:
+                per_metric = metric_df[metric_df["metric_name"] == metric_name].copy()
+                if not per_metric.empty:
+                    if progress_mode == "Latest":
+                        current_value = float(per_metric.iloc[0]["metric_value"])
+                    elif progress_mode == "Daily":
+                        today = pd.Timestamp.utcnow().date()
+                        today_rows = per_metric[per_metric["recorded_at"].dt.date == today]
+                        current_value = float(today_rows["metric_value"].sum()) if not today_rows.empty else 0.0
+                    elif progress_mode == "Monthly":
+                        now = pd.Timestamp.utcnow()
+                        month_rows = per_metric[
+                            (per_metric["recorded_at"].dt.year == now.year)
+                            & (per_metric["recorded_at"].dt.month == now.month)
+                        ]
+                        current_value = float(month_rows["metric_value"].sum()) if not month_rows.empty else 0.0
+
             progress = min(current_value / target_value, 1.0) if target_value > 0 else 0.0
 
             cols = st.columns([3, 3, 2, 1])
@@ -236,9 +260,19 @@ with tab4:
 
 with tab5:
     st.subheader("Health Report")
+    report_progress_mode = st.radio(
+        "Goal Progress Mode (Report)",
+        ["Latest", "Daily", "Monthly"],
+        horizontal=True,
+    )
     all_metrics = list_all_metrics()
     active_goals = list_health_goals(active_only=True)
-    report_text = generate_health_report(all_metrics, medications, active_goals)
+    report_text = generate_health_report(
+        all_metrics,
+        medications,
+        active_goals,
+        progress_mode=report_progress_mode,
+    )
     st.text_area("Generated report", value=report_text, height=360)
     st.download_button(
         "Download Report",
