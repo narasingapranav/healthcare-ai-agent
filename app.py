@@ -33,7 +33,9 @@ init_db()
 chatbot = HealthChatbot()
 
 st.title("Healthcare Monitoring AI Agent (Track A)")
-st.caption("Week 1 implementation: medication scheduler, health metrics, and basic health chatbot")
+st.caption(
+    "Week 3-4 implementation: medication + fitness workflow, interactions, goals, reports, and multi-format data support"
+)
 
 medications = list_medications(active_only=True)
 alerts = upcoming_reminders(medications, window_minutes=60)
@@ -119,28 +121,33 @@ with tab3:
     st.markdown("### Import Fitness Data (CSV/JSON/XML)")
     uploaded_file = st.file_uploader("Upload fitness data file", type=["csv", "json", "xml"])
     if uploaded_file is not None:
-        payload = uploaded_file.read().decode("utf-8")
-        parsed_metrics: list[dict] = []
-        if uploaded_file.name.endswith(".csv"):
-            parsed_metrics = parse_metrics_csv_text(payload)
-        elif uploaded_file.name.endswith(".json"):
-            parsed_metrics = parse_metrics_json_text(payload)
-        elif uploaded_file.name.endswith(".xml"):
-            parsed_metrics = parse_metrics_xml_text(payload)
+        import_clicked = st.button("Import Uploaded File", type="primary")
+        if import_clicked:
+            try:
+                payload = uploaded_file.read().decode("utf-8")
+                parsed_metrics: list[dict] = []
+                if uploaded_file.name.endswith(".csv"):
+                    parsed_metrics = parse_metrics_csv_text(payload)
+                elif uploaded_file.name.endswith(".json"):
+                    parsed_metrics = parse_metrics_json_text(payload)
+                elif uploaded_file.name.endswith(".xml"):
+                    parsed_metrics = parse_metrics_xml_text(payload)
 
-        for item in parsed_metrics:
-            add_health_metric(
-                str(item["metric_name"]),
-                float(item["metric_value"]),
-                str(item["unit"]),
-                str(item["recorded_at"]),
-            )
+                for item in parsed_metrics:
+                    add_health_metric(
+                        str(item["metric_name"]),
+                        float(item["metric_value"]),
+                        str(item["unit"]),
+                        str(item["recorded_at"]),
+                    )
 
-        if parsed_metrics:
-            st.success(f"Imported {len(parsed_metrics)} fitness records.")
-            st.rerun()
-        else:
-            st.info("No rows found in uploaded file.")
+                if parsed_metrics:
+                    st.success(f"Imported {len(parsed_metrics)} fitness records.")
+                    st.rerun()
+                else:
+                    st.info("No rows found in uploaded file.")
+            except Exception as error:
+                st.error(f"Could not import file. Please check file format. Details: {error}")
 
     records = list_recent_metrics(limit=50)
     if records:
