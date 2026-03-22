@@ -54,6 +54,17 @@ healthcare-ai-agent/
 
 ---
 
+## ⚙️ Features (Week 3-4)
+
+✅ Fitness + medication management workflow in one app  
+✅ Health metric visualization with trend charts  
+✅ Medication interaction checking (known pair warnings)  
+✅ Health report generation and download  
+✅ Multi-format health data support (JSON, CSV, XML import/export)  
+✅ Health goal setting and progress tracking  
+
+---
+
 ## 🧠 Architecture
 
 - **Database Layer** -> `db.py`
@@ -115,6 +126,23 @@ MONGO_URI=mongodb://127.0.0.1:27017/
 
 ```bash
 streamlit run app.py
+```
+
+5. (Optional) Import health metrics from file in app:
+
+- CSV columns: `metric_name, metric_value, unit, recorded_at`
+- JSON format: list of metric objects with same keys
+- XML format:
+
+```xml
+<metrics>
+	<metric>
+		<metric_name>steps</metric_name>
+		<metric_value>8200</metric_value>
+		<unit>steps</unit>
+		<recorded_at>2026-03-22T08:00:00</recorded_at>
+	</metric>
+</metrics>
 ```
 
 ---

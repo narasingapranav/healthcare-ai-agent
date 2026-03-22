@@ -27,6 +27,10 @@ def _medications_collection() -> Collection:
     return _get_database()["medications"]
 
 
+def _goals_collection() -> Collection:
+    return _get_database()["health_goals"]
+
+
 def _to_object_id(value: Any) -> ObjectId | None:
     if isinstance(value, ObjectId):
         return value
@@ -38,9 +42,11 @@ def _to_object_id(value: Any) -> ObjectId | None:
 def init_db() -> None:
     metrics = _metrics_collection()
     medications = _medications_collection()
+    goals = _goals_collection()
 
     metrics.create_index([("recorded_at_dt", DESCENDING)])
     medications.create_index([("active", ASCENDING), ("schedule_time", ASCENDING)])
+    goals.create_index([("active", ASCENDING), ("created_at", DESCENDING)])
 
 
 def add_health_metric(metric_name: str, metric_value: float, unit: str, recorded_at: str) -> None:
@@ -66,6 +72,14 @@ def list_recent_metrics(limit: int = 20) -> list[dict[str, Any]]:
         .find({}, {"_id": 0, "metric_name": 1, "metric_value": 1, "unit": 1, "recorded_at": 1})
         .sort("recorded_at_dt", DESCENDING)
         .limit(limit)
+    )
+    return list(cursor)
+
+
+def list_all_metrics() -> list[dict[str, Any]]:
+    cursor = _metrics_collection().find(
+        {},
+        {"_id": 0, "metric_name": 1, "metric_value": 1, "unit": 1, "recorded_at": 1},
     )
     return list(cursor)
 
@@ -111,3 +125,44 @@ def deactivate_medication(medication_id: Any) -> None:
         return
 
     _medications_collection().update_one({"_id": object_id}, {"$set": {"active": False}})
+
+
+def add_health_goal(metric_name: str, target_value: float, unit: str) -> None:
+    now = datetime.utcnow()
+    _goals_collection().insert_one(
+        {
+            "metric_name": metric_name,
+            "target_value": target_value,
+            "unit": unit,
+            "active": True,
+            "created_at": now,
+        }
+    )
+
+
+def list_health_goals(active_only: bool = True) -> list[dict[str, Any]]:
+    query: dict[str, Any] = {"active": True} if active_only else {}
+    cursor = _goals_collection().find(query).sort("created_at", DESCENDING)
+
+    goals: list[dict[str, Any]] = []
+    for document in cursor:
+        goals.append(
+            {
+                "id": str(document["_id"]),
+                "metric_name": document.get("metric_name", ""),
+                "target_value": float(document.get("target_value", 0)),
+                "unit": document.get("unit", ""),
+                "active": 1 if document.get("active", True) else 0,
+                "created_at": document.get("created_at"),
+            }
+        )
+
+    return goals
+
+
+def deactivate_health_goal(goal_id: Any) -> None:
+    object_id = _to_object_id(goal_id)
+    if object_id is None:
+        return
+
+    _goals_collection().update_one({"_id": object_id}, {"$set": {"active": False}})
