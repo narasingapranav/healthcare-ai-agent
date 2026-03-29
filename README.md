@@ -62,6 +62,11 @@ healthcare-ai-agent/
 ✅ Health report generation and download  
 ✅ Multi-format health data support (JSON, CSV, XML import/export)  
 ✅ Health goal setting and progress tracking  
+✅ Indian Personal Health Assistant tab  
+✅ 1mg medicine search integration (configurable API endpoint + offline-safe fallback)  
+✅ Practo doctor search integration (configurable API endpoint + offline-safe fallback)  
+✅ Ayurvedic medicine information integration  
+✅ MongoDB-backed Indian medication database
 
 ---
 
@@ -120,6 +125,16 @@ pip install -r requirements.txt
 
 ```
 MONGO_URI=mongodb://127.0.0.1:27017/
+MONGODB_URI=mongodb://127.0.0.1:27017/
+MONGODB_DB_NAME=healthcare_agent
+
+# Optional Indian platform integrations
+ONE_MG_API_URL=
+ONE_MG_API_KEY=
+PRACTO_API_URL=
+PRACTO_API_KEY=
+AYURVEDA_API_URL=
+AYURVEDA_API_KEY=
 ```
 
 4. Run application:

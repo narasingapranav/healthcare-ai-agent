@@ -17,12 +17,15 @@ from src.database import (
     deactivate_health_goal,
     deactivate_medication,
     init_db,
+    list_indian_medications,
     list_all_metrics,
     list_health_goals,
     list_medications,
     list_recent_metrics,
+    upsert_indian_medication,
 )
 from src.health_parser import parse_metric_input
+from src.indian_health import IndianHealthService
 from src.medication_interactions import check_interactions
 from src.medication import upcoming_reminders
 from src.reporting import generate_health_report
@@ -31,6 +34,7 @@ st.set_page_config(page_title="Healthcare AI Agent - Track A", layout="wide")
 
 init_db()
 chatbot = HealthChatbot()
+indian_health = IndianHealthService()
 
 st.title("Healthcare Monitoring AI Agent (Track A)")
 st.caption(
@@ -45,13 +49,14 @@ if alerts:
 else:
     st.info("No medication reminders in the next hour.")
 
-tab1, tab2, tab3, tab4, tab5 = st.tabs(
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(
     [
         "Health Chat",
         "Medication Scheduler",
         "Health Metrics",
         "Goals & Progress",
         "Reports",
+        "Indian Health",
     ]
 )
 
@@ -280,3 +285,93 @@ with tab5:
         file_name="health_report.txt",
         mime="text/plain",
     )
+
+with tab6:
+    st.subheader("Indian Personal Health Assistant")
+
+    st.markdown("### 1mg Medicine Search")
+    search_query = st.text_input("Search medicine on 1mg", placeholder="Paracetamol")
+    medicine_limit = st.slider("Max results", min_value=1, max_value=20, value=5)
+    if st.button("Search 1mg", key="search_1mg"):
+        if not search_query.strip():
+            st.error("Please enter a medicine name to search.")
+        else:
+            med_results = indian_health.search_1mg_medicines(search_query.strip(), limit=medicine_limit)
+            if med_results:
+                for index, item in enumerate(med_results):
+                    st.markdown(f"**{item.get('name', 'Unknown')}**")
+                    st.caption(
+                        f"Manufacturer: {item.get('manufacturer', '-') or '-'} | "
+                        f"Price (INR): {item.get('price_inr') if item.get('price_inr') is not None else '-'}"
+                    )
+                    st.write(item.get("uses", "No usage information available."))
+
+                    if item.get("url"):
+                        st.markdown(f"[Product Link]({item['url']})")
+
+                    if st.button("Save to Indian Medication DB", key=f"save_indian_med_{index}"):
+                        upsert_indian_medication(
+                            source="1mg",
+                            name=str(item.get("name", "")),
+                            manufacturer=str(item.get("manufacturer", "")),
+                            price_inr=item.get("price_inr"),
+                            uses=str(item.get("uses", "")),
+                            product_url=str(item.get("url", "")),
+                            raw_payload=item.get("raw") if isinstance(item.get("raw"), dict) else {},
+                        )
+                        st.success(f"Saved {item.get('name', 'medicine')} to MongoDB.")
+            else:
+                st.info("No medicine results found.")
+
+    st.markdown("### Practo Doctor Finder")
+    practo_city = st.text_input("City", placeholder="Bengaluru")
+    practo_specialty = st.text_input("Specialty", placeholder="General Physician")
+    practo_limit = st.slider("Max doctors", min_value=1, max_value=20, value=5)
+    if st.button("Search Practo", key="search_practo"):
+        doctors = indian_health.search_practo_doctors(practo_city, practo_specialty, limit=practo_limit)
+        if doctors:
+            for doctor in doctors:
+                st.markdown(f"**{doctor.get('name', 'Unknown Doctor')}**")
+                st.caption(
+                    f"{doctor.get('specialty', '-') or '-'} | "
+                    f"{doctor.get('city', '-') or '-'} | "
+                    f"Experience: {doctor.get('experience_years', 0)} years | "
+                    f"Fee (INR): {doctor.get('consultation_fee_inr') if doctor.get('consultation_fee_inr') is not None else '-'}"
+                )
+                clinic_name = doctor.get("clinic", "")
+                if clinic_name:
+                    st.write(f"Clinic: {clinic_name}")
+                if doctor.get("url"):
+                    st.markdown(f"[Profile Link]({doctor['url']})")
+        else:
+            st.info("No doctor results found.")
+
+    st.markdown("### Ayurvedic Medicine Info")
+    ayurvedic_remedy = st.text_input("Enter Ayurvedic remedy", placeholder="Ashwagandha")
+    if st.button("Get Ayurvedic Info", key="ayurveda_info"):
+        info = indian_health.get_ayurvedic_info(ayurvedic_remedy)
+        if info:
+            st.markdown(f"**{info.get('name', 'Unknown Remedy')}**")
+            st.write(info.get("uses", "No usage information available."))
+
+            forms = info.get("common_forms", [])
+            if forms:
+                st.write("Common forms: " + ", ".join(str(item) for item in forms))
+
+            cautions = info.get("cautions", [])
+            if cautions:
+                st.warning("Cautions: " + " | ".join(str(item) for item in cautions))
+
+            evidence_note = info.get("evidence_note", "")
+            if evidence_note:
+                st.caption(f"Evidence note: {evidence_note}")
+        else:
+            st.info("No Ayurvedic information found for the provided remedy.")
+
+    st.markdown("### Indian Medication Database (MongoDB)")
+    db_search = st.text_input("Search stored Indian medications", placeholder="Paracetamol")
+    stored_records = list_indian_medications(search=db_search, source="", limit=50)
+    if stored_records:
+        st.dataframe(pd.DataFrame(stored_records), use_container_width=True)
+    else:
+        st.info("No Indian medication records stored yet.")

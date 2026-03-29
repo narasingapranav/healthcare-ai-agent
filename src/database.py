@@ -31,6 +31,10 @@ def _goals_collection() -> Collection:
     return _get_database()["health_goals"]
 
 
+def _indian_medications_collection() -> Collection:
+    return _get_database()["indian_medications"]
+
+
 def _to_object_id(value: Any) -> ObjectId | None:
     if isinstance(value, ObjectId):
         return value
@@ -43,10 +47,13 @@ def init_db() -> None:
     metrics = _metrics_collection()
     medications = _medications_collection()
     goals = _goals_collection()
+    indian_medications = _indian_medications_collection()
 
     metrics.create_index([("recorded_at_dt", DESCENDING)])
     medications.create_index([("active", ASCENDING), ("schedule_time", ASCENDING)])
     goals.create_index([("active", ASCENDING), ("created_at", DESCENDING)])
+    indian_medications.create_index([("name", ASCENDING), ("source", ASCENDING)], unique=True)
+    indian_medications.create_index([("updated_at", DESCENDING)])
 
 
 def add_health_metric(metric_name: str, metric_value: float, unit: str, recorded_at: str) -> None:
@@ -166,3 +173,57 @@ def deactivate_health_goal(goal_id: Any) -> None:
         return
 
     _goals_collection().update_one({"_id": object_id}, {"$set": {"active": False}})
+
+
+def upsert_indian_medication(
+    source: str,
+    name: str,
+    manufacturer: str = "",
+    price_inr: float | None = None,
+    uses: str = "",
+    product_url: str = "",
+    raw_payload: dict[str, Any] | None = None,
+) -> None:
+    now = datetime.utcnow()
+    _indian_medications_collection().update_one(
+        {"source": source.strip().lower(), "name": name.strip().lower()},
+        {
+            "$set": {
+                "source": source.strip().lower(),
+                "name": name.strip(),
+                "manufacturer": manufacturer.strip(),
+                "price_inr": price_inr,
+                "uses": uses.strip(),
+                "product_url": product_url.strip(),
+                "raw_payload": raw_payload or {},
+                "updated_at": now,
+            },
+            "$setOnInsert": {"created_at": now},
+        },
+        upsert=True,
+    )
+
+
+def list_indian_medications(search: str = "", source: str = "", limit: int = 25) -> list[dict[str, Any]]:
+    query: dict[str, Any] = {}
+    if search.strip():
+        query["name"] = {"$regex": search.strip(), "$options": "i"}
+    if source.strip():
+        query["source"] = source.strip().lower()
+
+    cursor = _indian_medications_collection().find(query).sort("updated_at", DESCENDING).limit(limit)
+    records: list[dict[str, Any]] = []
+    for document in cursor:
+        records.append(
+            {
+                "id": str(document.get("_id")),
+                "source": document.get("source", ""),
+                "name": document.get("name", ""),
+                "manufacturer": document.get("manufacturer", ""),
+                "price_inr": document.get("price_inr"),
+                "uses": document.get("uses", ""),
+                "product_url": document.get("product_url", ""),
+                "updated_at": document.get("updated_at"),
+            }
+        )
+    return records
