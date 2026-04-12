@@ -34,55 +34,241 @@ from src.database import (
 )
 from src.health_parser import parse_metric_input
 from src.indian_health import IndianHealthService
+from src.medical_lookup import get_medical_info
 from src.medication_interactions import check_interactions
 from src.medication import upcoming_reminders
 from src.reporting import generate_health_report
 
 st.set_page_config(page_title="Healthcare AI Agent - Track A", layout="wide")
 
+st.markdown(
+    """
+    <style>
+    :root {
+        --app-bg: #f4f7fb;
+        --surface: #ffffff;
+        --ink: #1f2937;
+        --muted: #5b6675;
+        --line: #d8e1eb;
+        --brand: #1f4e79;
+        --brand-soft: #eaf2fa;
+    }
+    .stApp {
+        background: var(--app-bg);
+    }
+    .main .block-container {
+        padding-top: 1.2rem;
+        padding-bottom: 2.4rem;
+        max-width: 1200px;
+    }
+    h1, h2, h3, h4 {
+        letter-spacing: 0.1px;
+        color: var(--ink);
+    }
+    .app-header {
+        background: linear-gradient(135deg, #ffffff 0%, #f6f9fc 100%);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 1rem 1.1rem;
+        margin-bottom: 0.9rem;
+    }
+    .app-title {
+        font-size: 1.45rem;
+        font-weight: 700;
+        color: var(--ink);
+        margin-bottom: 0.2rem;
+    }
+    .app-subtitle {
+        font-size: 0.92rem;
+        color: var(--muted);
+        margin: 0;
+    }
+    .status-badge {
+        display: inline-block;
+        color: var(--brand);
+        background: var(--brand-soft);
+        border: 1px solid #c8dff5;
+        border-radius: 999px;
+        padding: 0.3rem 0.65rem;
+        font-size: 0.78rem;
+        font-weight: 600;
+    }
+    .formal-card {
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 0.7rem 0.95rem;
+        background: var(--surface);
+        margin-bottom: 0.8rem;
+    }
+    .section-title {
+        font-size: 1.15rem;
+        font-weight: 650;
+        color: var(--ink);
+        margin-bottom: 0.3rem;
+    }
+    .section-note {
+        color: var(--muted);
+        font-size: 0.88rem;
+        margin-bottom: 0.35rem;
+    }
+    .sidebar-note {
+        font-size: 0.86rem;
+        color: #334e68;
+        line-height: 1.4;
+    }
+    [data-testid="stSidebar"] {
+        background: #eef3f8;
+    }
+    .stButton > button {
+        border-radius: 8px;
+        border: 1px solid #bdd1e6;
+    }
+    .app-footer {
+        margin-top: 1.2rem;
+        border-top: 1px solid var(--line);
+        color: var(--muted);
+        font-size: 0.82rem;
+        padding-top: 0.7rem;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 init_db()
 chatbot = HealthChatbot()
 indian_health = IndianHealthService()
 
-st.title("Healthcare Monitoring AI Agent (Track A)")
-st.caption(
-    "Week 3-4 implementation: medication + fitness workflow, interactions, goals, reports, and multi-format data support"
+st.markdown(
+    """
+    <div class="app-header">
+        <div class="app-title">Healthcare Monitoring AI Agent</div>
+        <p class="app-subtitle">Professional health tracking dashboard for medication, metrics, goals, reports, and Indian health workflows.</p>
+        <span class="status-badge">Track A • Production UI</span>
+    </div>
+    """,
+    unsafe_allow_html=True,
 )
 
 medications = list_medications(active_only=True)
+all_medications = list_medications(active_only=False)
 alerts = upcoming_reminders(medications, window_minutes=60)
-if alerts:
-    for alert in alerts:
-        st.warning(f"Reminder: {alert}")
-else:
-    st.info("No medication reminders in the next hour.")
 
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(
-    [
-        "Health Chat",
-        "Medication Scheduler",
-        "Health Metrics",
-        "Goals & Progress",
-        "Reports",
-        "Indian Health",
-    ]
-)
+with st.sidebar:
+    st.header("Navigation Panel")
+    selected_section = st.radio(
+        "Select Workspace",
+        [
+            "Health Dashboard",
+            "Medication Scheduler",
+            "Health Metrics",
+            "Goals & Progress",
+            "Reports",
+            "Indian Health",
+        ],
+        index=0,
+    )
 
-with tab1:
-    st.subheader("Basic Health Chatbot")
+    st.divider()
+    st.subheader("Quick Snapshot")
+    st.metric("Active Medications", len(medications))
+    st.metric("Active Goals", len(list_health_goals(active_only=True)))
+    st.metric("Health Logs", len(list_all_metrics()))
+
+    st.divider()
+    st.subheader("Reminder Window")
+    if alerts:
+        for alert in alerts[:5]:
+            st.warning(alert)
+    else:
+        st.success("No reminders due in the next hour")
+
+    st.divider()
+    st.markdown("<div class='sidebar-note'>Educational assistant only. Always consult licensed medical professionals for diagnosis and treatment.</div>", unsafe_allow_html=True)
+
+st.markdown(f"<div class='formal-card'><b>Current Section:</b> {selected_section}</div>", unsafe_allow_html=True)
+
+if selected_section == "Health Dashboard":
+    st.markdown("<div class='section-title'>Health Dashboard</div>", unsafe_allow_html=True)
+    st.markdown("<div class='section-note'>Overview of key health indicators, engagement, and evidence-backed information lookup.</div>", unsafe_allow_html=True)
+    all_metrics_dashboard = list_all_metrics()
+    metrics_df = pd.DataFrame(all_metrics_dashboard, columns=["metric_name", "metric_value", "unit", "recorded_at"])
+
+    total_metrics = len(all_metrics_dashboard)
+    total_active_medications = len(medications)
+    total_goals = len(list_health_goals(active_only=True))
+    adherence_rate = 0.0
+    if all_medications:
+        completed = len([item for item in all_medications if int(item.get("active", 1)) == 0])
+        adherence_rate = (completed / len(all_medications)) * 100
+
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Total Health Logs", total_metrics)
+    m2.metric("Active Medications", total_active_medications)
+    m3.metric("Active Goals", total_goals)
+    m4.metric("Medication Adherence", f"{adherence_rate:.1f}%")
+
+    if not metrics_df.empty:
+        metrics_df["recorded_at"] = pd.to_datetime(metrics_df["recorded_at"], errors="coerce")
+        metrics_df = metrics_df.dropna(subset=["recorded_at"])
+        trend_df = metrics_df.sort_values("recorded_at")
+
+        st.markdown("### Comprehensive Metrics Visualization")
+        c1, c2 = st.columns(2)
+        with c1:
+            avg_by_metric = (
+                trend_df.groupby("metric_name", as_index=False)["metric_value"].mean().rename(columns={"metric_value": "avg_value"})
+            )
+            st.caption("Average values by metric")
+            st.bar_chart(avg_by_metric.set_index("metric_name")["avg_value"])
+
+        with c2:
+            latest_by_metric = trend_df.sort_values("recorded_at").groupby("metric_name", as_index=False).tail(1)
+            latest_table = latest_by_metric[["metric_name", "metric_value", "unit", "recorded_at"]].sort_values("metric_name")
+            st.caption("Latest recorded values")
+            st.dataframe(latest_table, use_container_width=True)
+
+    st.divider()
+    st.markdown("### Health Assistant")
     question = st.text_input("Ask a health-related question", placeholder="How can I track my steps better?")
     if st.button("Get Guidance", type="primary"):
         response = chatbot.answer(question)
         st.write(response)
 
-with tab2:
-    st.subheader("Medication Reminder Setup")
+    st.divider()
+    st.markdown("### Medical Information Lookup")
+    lookup_topic = st.text_input("Search medical topic", placeholder="hypertension")
+    if st.button("Lookup Medical Info"):
+        if not lookup_topic.strip():
+            st.error("Please enter a topic to look up.")
+        else:
+            info = get_medical_info(lookup_topic)
+            st.markdown(f"**{info.get('title', 'Medical Topic')}**")
+            st.write(info.get("summary", ""))
+
+            guidance = info.get("guidance", [])
+            if guidance:
+                st.markdown("Recommended actions:")
+                for item in guidance:
+                    st.write(f"- {item}")
+
+            citations = info.get("citations", [])
+            if citations:
+                st.markdown("Reliable source citations:")
+                for source in citations:
+                    st.write(f"- {source}")
+
+if selected_section == "Medication Scheduler":
+    st.markdown("<div class='section-title'>Medication Scheduler</div>", unsafe_allow_html=True)
+    st.markdown("<div class='section-note'>Create medication plans, track completion, and review interaction/adherence insights.</div>", unsafe_allow_html=True)
     with st.form("medication_form"):
-        med_name = st.text_input("Medicine name")
-        dosage = st.text_input("Dosage", placeholder="500 mg")
-        schedule = st.time_input("Schedule time")
-        notes = st.text_input("Notes (optional)")
-        submitted = st.form_submit_button("Add Medication")
+        c1, c2 = st.columns(2)
+        med_name = c1.text_input("Medicine name")
+        dosage = c2.text_input("Dosage", placeholder="500 mg")
+        c3, c4 = st.columns(2)
+        schedule = c3.time_input("Schedule time")
+        notes = c4.text_input("Notes (optional)")
+        submitted = st.form_submit_button("Add Medication", type="primary")
 
     if submitted:
         if med_name.strip() and dosage.strip():
@@ -92,6 +278,7 @@ with tab2:
         else:
             st.error("Medicine name and dosage are required.")
 
+    st.divider()
     st.markdown("### Active Schedules")
     for medication in medications:
         cols = st.columns([4, 2, 2, 1])
@@ -102,6 +289,7 @@ with tab2:
             deactivate_medication(medication["id"])
             st.rerun()
 
+    st.divider()
     st.markdown("### Medication Interaction Check")
     names = [item["name"] for item in medications if item.get("name")]
     if names:
@@ -114,13 +302,31 @@ with tab2:
     else:
         st.info("Add medications to run interaction checks.")
 
-with tab3:
-    st.subheader("Health Metrics Logger")
+    st.divider()
+    st.markdown("### Adherence Report")
+    if all_medications:
+        medication_df = pd.DataFrame(all_medications)
+        medication_df["status"] = medication_df["active"].apply(lambda value: "Active" if int(value) == 1 else "Completed")
+        completed_count = int((medication_df["status"] == "Completed").sum())
+        adherence_pct = (completed_count / len(medication_df)) * 100 if len(medication_df) else 0.0
+
+        st.progress(min(adherence_pct / 100.0, 1.0), text=f"Adherence (completed schedules): {adherence_pct:.1f}%")
+        st.dataframe(
+            medication_df[["name", "dosage", "schedule_time", "notes", "status", "created_at"]],
+            use_container_width=True,
+        )
+    else:
+        st.info("No medication records available for adherence reporting.")
+
+if selected_section == "Health Metrics":
+    st.markdown("<div class='section-title'>Health Metrics</div>", unsafe_allow_html=True)
+    st.markdown("<div class='section-note'>Capture structured health records, visualize trends, and manage multi-format imports/exports.</div>", unsafe_allow_html=True)
     with st.form("metric_form"):
-        metric_name = st.selectbox("Metric", ["steps", "heart_rate", "weight", "sleep_hours", "water_intake"])
-        metric_value = st.text_input("Value", placeholder="e.g., 6500")
-        unit = st.text_input("Unit", placeholder="steps / bpm / kg / hours / liters")
-        metric_submit = st.form_submit_button("Save Metric")
+        c1, c2, c3 = st.columns([2, 1, 2])
+        metric_name = c1.selectbox("Metric", ["steps", "heart_rate", "weight", "sleep_hours", "water_intake"])
+        metric_value = c2.text_input("Value", placeholder="6500")
+        unit = c3.text_input("Unit", placeholder="steps / bpm / kg / hours / liters")
+        metric_submit = st.form_submit_button("Save Metric", type="primary")
 
     if metric_submit:
         try:
@@ -131,6 +337,7 @@ with tab3:
         except ValueError as error:
             st.error(str(error))
 
+    st.divider()
     st.markdown("### Import Fitness Data (CSV/JSON/XML)")
     uploaded_file = st.file_uploader("Upload fitness data file", type=["csv", "json", "xml"])
     if uploaded_file is not None:
@@ -167,6 +374,7 @@ with tab3:
         dataframe = pd.DataFrame(records, columns=["metric_name", "metric_value", "unit", "recorded_at"])
         st.dataframe(dataframe, use_container_width=True)
 
+        st.divider()
         st.markdown("### Recent Trend")
         metric_filter = st.selectbox("Choose metric", sorted(dataframe["metric_name"].unique()))
         filtered = dataframe[dataframe["metric_name"] == metric_filter].copy()
@@ -174,6 +382,7 @@ with tab3:
         filtered = filtered.sort_values("recorded_at")
         st.line_chart(filtered.set_index("recorded_at")["metric_value"])
 
+        st.divider()
         st.markdown("### Export Metrics")
         all_metrics = list_all_metrics()
         csv_data = export_metrics_to_csv(all_metrics)
@@ -202,8 +411,9 @@ with tab3:
     else:
         st.info("No metrics logged yet.")
 
-with tab4:
-    st.subheader("Health Goals and Progress")
+if selected_section == "Goals & Progress":
+    st.markdown("<div class='section-title'>Goals and Progress Monitoring</div>", unsafe_allow_html=True)
+    st.markdown("<div class='section-note'>Define measurable targets and monitor achievement across latest, daily, or monthly views.</div>", unsafe_allow_html=True)
     progress_mode = st.radio(
         "Progress Mode",
         ["Latest", "Daily", "Monthly"],
@@ -212,13 +422,14 @@ with tab4:
     )
 
     with st.form("goal_form"):
-        goal_metric = st.selectbox(
+        c1, c2, c3 = st.columns([2, 1, 2])
+        goal_metric = c1.selectbox(
             "Goal Metric",
             ["steps", "heart_rate", "weight", "sleep_hours", "water_intake"],
         )
-        goal_target = st.number_input("Target Value", min_value=0.0, step=1.0, format="%.2f")
-        goal_unit = st.text_input("Unit", placeholder="steps / bpm / kg / hours / liters")
-        goal_submit = st.form_submit_button("Add Goal")
+        goal_target = c2.number_input("Target Value", min_value=0.0, step=1.0, format="%.2f")
+        goal_unit = c3.text_input("Unit", placeholder="steps / bpm / kg / hours / liters")
+        goal_submit = st.form_submit_button("Add Goal", type="primary")
 
     if goal_submit:
         if goal_target > 0 and goal_unit.strip():
@@ -237,6 +448,7 @@ with tab4:
         metric_df = metric_df.sort_values("recorded_at", ascending=False)
 
     if goals:
+        progress_rows: list[dict] = []
         for goal in goals:
             metric_name = goal["metric_name"]
             target_value = float(goal["target_value"])
@@ -265,14 +477,29 @@ with tab4:
             cols[0].write(f"**{metric_name}**")
             cols[1].progress(progress, text=f"{current_value:.2f}/{target_value:.2f} {goal['unit']}")
             cols[2].write(f"{progress * 100:.1f}%")
+            progress_rows.append(
+                {
+                    "metric_name": metric_name,
+                    "current_value": round(current_value, 2),
+                    "target_value": round(target_value, 2),
+                    "unit": goal["unit"],
+                    "progress_percent": round(progress * 100, 1),
+                }
+            )
             if cols[3].button("Close", key=f"goal_close_{goal['id']}"):
                 deactivate_health_goal(goal["id"])
                 st.rerun()
+
+        if progress_rows:
+            progress_df = pd.DataFrame(progress_rows)
+            st.markdown("### Progress Monitoring Snapshot")
+            st.dataframe(progress_df, use_container_width=True)
     else:
         st.info("No active goals yet.")
 
-with tab5:
-    st.subheader("Health Report")
+if selected_section == "Reports":
+    st.markdown("<div class='section-title'>Reports and Exports</div>", unsafe_allow_html=True)
+    st.markdown("<div class='section-note'>Generate comprehensive reports and export medication and fitness datasets.</div>", unsafe_allow_html=True)
     report_progress_mode = st.radio(
         "Goal Progress Mode (Report)",
         ["Latest", "Daily", "Monthly"],
@@ -294,8 +521,35 @@ with tab5:
         mime="text/plain",
     )
 
-with tab6:
-    st.subheader("Indian Personal Health Assistant")
+    st.divider()
+    st.markdown("### Export: Medication History")
+    if all_medications:
+        meds_export_df = pd.DataFrame(all_medications)
+        meds_export_df["status"] = meds_export_df["active"].apply(lambda value: "Active" if int(value) == 1 else "Completed")
+        med_csv = meds_export_df.to_csv(index=False)
+        st.download_button(
+            "Download Medication History (CSV)",
+            data=med_csv,
+            file_name="medication_history.csv",
+            mime="text/csv",
+        )
+    else:
+        st.info("No medication history available for export.")
+
+    st.markdown("### Export: Fitness Data (Latest 100)")
+    fitness_rows = list_recent_metrics(limit=100)
+    if fitness_rows:
+        fit_csv = pd.DataFrame(fitness_rows).to_csv(index=False)
+        st.download_button(
+            "Download Fitness Data (CSV)",
+            data=fit_csv,
+            file_name="fitness_data_latest_100.csv",
+            mime="text/csv",
+        )
+
+if selected_section == "Indian Health":
+    st.markdown("<div class='section-title'>Indian Personal Health Assistant</div>", unsafe_allow_html=True)
+    st.markdown("<div class='section-note'>Unified interface for medicine lookup, regional doctors, nutrition planning, insurance, and history records.</div>", unsafe_allow_html=True)
 
     st.markdown("### 1mg Medicine Search")
     search_query = st.text_input("Search medicine on 1mg", placeholder="Paracetamol")
@@ -331,6 +585,7 @@ with tab6:
             else:
                 st.info("No medicine results found.")
 
+    st.divider()
     st.markdown("### Practo Doctor Finder")
     practo_city = st.text_input("City", placeholder="Bengaluru")
     practo_specialty = st.text_input("Specialty", placeholder="General Physician")
@@ -354,6 +609,7 @@ with tab6:
         else:
             st.info("No doctor results found.")
 
+    st.divider()
     st.markdown("### Ayurvedic Medicine Info")
     ayurvedic_remedy = st.text_input("Enter Ayurvedic remedy", placeholder="Ashwagandha")
     if st.button("Get Ayurvedic Info", key="ayurveda_info"):
@@ -376,7 +632,8 @@ with tab6:
         else:
             st.info("No Ayurvedic information found for the provided remedy.")
 
-    st.markdown("### Indian Medication Database (MongoDB)")
+    st.divider()
+    st.markdown("### Indian Medication Database")
     db_search = st.text_input("Search stored Indian medications", placeholder="Paracetamol")
     stored_records = list_indian_medications(search=db_search, source="", limit=50)
     if stored_records:
@@ -384,30 +641,34 @@ with tab6:
     else:
         st.info("No Indian medication records stored yet.")
 
+    st.divider()
     st.markdown("### Indian Dietary Recommendations and Nutrition Tracking")
     with st.form("indian_diet_form"):
-        diet_region = st.selectbox(
+        c1, c2, c3 = st.columns(3)
+        diet_region = c1.selectbox(
             "Region",
             ["North India", "South India", "West India", "East India", "Central India"],
         )
-        health_goal = st.selectbox(
+        health_goal = c2.selectbox(
             "Health Goal",
             ["General Wellness", "Weight Loss", "Diabetes Management", "Heart Health", "Muscle Gain"],
         )
-        diet_preference = st.selectbox(
+        diet_preference = c3.selectbox(
             "Diet Preference",
             ["Balanced", "Vegetarian", "Non-Vegetarian", "Jain", "Vegan"],
         )
-        meal_type = st.selectbox("Meal Type", ["Breakfast", "Lunch", "Dinner", "Snack"])
-        food_item = st.text_input("Food Item", placeholder="e.g., Idli with sambar")
-        quantity = st.text_input("Quantity", placeholder="e.g., 2 pieces")
-        calories = st.number_input("Calories", min_value=0.0, value=250.0, step=10.0)
-        protein_g = st.number_input("Protein (g)", min_value=0.0, value=8.0, step=1.0)
-        carbs_g = st.number_input("Carbs (g)", min_value=0.0, value=30.0, step=1.0)
-        fats_g = st.number_input("Fats (g)", min_value=0.0, value=6.0, step=1.0)
-        fiber_g = st.number_input("Fiber (g)", min_value=0.0, value=3.0, step=0.5)
+        r1, r2, r3 = st.columns(3)
+        meal_type = r1.selectbox("Meal Type", ["Breakfast", "Lunch", "Dinner", "Snack"])
+        food_item = r2.text_input("Food Item", placeholder="e.g., Idli with sambar")
+        quantity = r3.text_input("Quantity", placeholder="e.g., 2 pieces")
+        n1, n2, n3, n4, n5 = st.columns(5)
+        calories = n1.number_input("Calories", min_value=0.0, value=250.0, step=10.0)
+        protein_g = n2.number_input("Protein (g)", min_value=0.0, value=8.0, step=1.0)
+        carbs_g = n3.number_input("Carbs (g)", min_value=0.0, value=30.0, step=1.0)
+        fats_g = n4.number_input("Fats (g)", min_value=0.0, value=6.0, step=1.0)
+        fiber_g = n5.number_input("Fiber (g)", min_value=0.0, value=3.0, step=0.5)
         nutrition_notes = st.text_input("Notes", placeholder="Post-workout meal")
-        diet_submit = st.form_submit_button("Save Meal and Get Recommendations")
+        diet_submit = st.form_submit_button("Save Meal and Get Recommendations", type="primary")
 
     if diet_submit:
         if food_item.strip():
@@ -444,16 +705,19 @@ with tab6:
     if nutrition_logs:
         st.dataframe(pd.DataFrame(nutrition_logs), use_container_width=True)
 
+    st.divider()
     st.markdown("### Indian Health Insurance and Medical History")
     with st.form("insurance_form"):
-        patient_name = st.text_input("Patient Name", placeholder="Amit Sharma")
-        insurer = st.text_input("Insurer", placeholder="Star Health")
-        policy_number = st.text_input("Policy Number", placeholder="POL123456")
-        policy_type = st.selectbox("Policy Type", ["Individual", "Family Floater", "Senior Citizen", "Corporate"])
-        sum_insured = st.number_input("Sum Insured (INR)", min_value=0.0, value=500000.0, step=10000.0)
-        expiry_date = st.date_input("Policy Expiry Date")
-        network_hospitals = st.text_input("Network Hospitals", placeholder="Apollo, Fortis, Manipal")
-        insurance_submit = st.form_submit_button("Save Insurance Profile")
+        i1, i2, i3 = st.columns(3)
+        patient_name = i1.text_input("Patient Name", placeholder="Amit Sharma")
+        insurer = i2.text_input("Insurer", placeholder="Star Health")
+        policy_number = i3.text_input("Policy Number", placeholder="POL123456")
+        i4, i5, i6, i7 = st.columns(4)
+        policy_type = i4.selectbox("Policy Type", ["Individual", "Family Floater", "Senior Citizen", "Corporate"])
+        sum_insured = i5.number_input("Sum Insured (INR)", min_value=0.0, value=500000.0, step=10000.0)
+        expiry_date = i6.date_input("Policy Expiry Date")
+        network_hospitals = i7.text_input("Network Hospitals", placeholder="Apollo, Fortis, Manipal")
+        insurance_submit = st.form_submit_button("Save Insurance Profile", type="primary")
 
     if insurance_submit:
         if patient_name.strip() and insurer.strip() and policy_number.strip():
@@ -471,14 +735,16 @@ with tab6:
             st.error("Patient name, insurer, and policy number are required.")
 
     with st.form("medical_history_form"):
-        mh_patient_name = st.text_input("Patient Name (History)", placeholder="Amit Sharma")
-        condition_name = st.text_input("Condition", placeholder="Hypertension")
-        diagnosis_date = st.date_input("Diagnosis Date")
-        current_medications = st.text_input("Current Medications", placeholder="Amlodipine")
-        allergies = st.text_input("Allergies", placeholder="Penicillin")
-        procedures_done = st.text_input("Procedures", placeholder="Angioplasty")
+        h1, h2, h3 = st.columns(3)
+        mh_patient_name = h1.text_input("Patient Name (History)", placeholder="Amit Sharma")
+        condition_name = h2.text_input("Condition", placeholder="Hypertension")
+        diagnosis_date = h3.date_input("Diagnosis Date")
+        h4, h5, h6 = st.columns(3)
+        current_medications = h4.text_input("Current Medications", placeholder="Amlodipine")
+        allergies = h5.text_input("Allergies", placeholder="Penicillin")
+        procedures_done = h6.text_input("Procedures", placeholder="Angioplasty")
         history_notes = st.text_input("Notes", placeholder="Regular BP monitoring")
-        history_submit = st.form_submit_button("Add Medical History Record")
+        history_submit = st.form_submit_button("Add Medical History Record", type="primary")
 
     if history_submit:
         if mh_patient_name.strip() and condition_name.strip():
@@ -505,20 +771,23 @@ with tab6:
         st.markdown("#### Medical History")
         st.dataframe(pd.DataFrame(history_rows), use_container_width=True)
 
+    st.divider()
     st.markdown("### Regional Health Preferences and Local Doctor Networks")
     with st.form("regional_pref_form"):
-        rp_patient = st.text_input("Patient Name (Preferences)", placeholder="Amit Sharma")
-        rp_state = st.text_input("State", placeholder="Karnataka")
-        rp_city = st.text_input("City", placeholder="Bengaluru")
-        rp_language = st.selectbox(
+        p1, p2, p3 = st.columns(3)
+        rp_patient = p1.text_input("Patient Name (Preferences)", placeholder="Amit Sharma")
+        rp_state = p2.text_input("State", placeholder="Karnataka")
+        rp_city = p3.text_input("City", placeholder="Bengaluru")
+        p4, p5, p6, p7 = st.columns(4)
+        rp_language = p4.selectbox(
             "Preferred Language",
             ["English", "Hindi", "Kannada", "Tamil", "Telugu", "Malayalam", "Marathi", "Bengali"],
         )
-        rp_diet = st.selectbox("Diet Preference", ["Balanced", "Vegetarian", "Non-Vegetarian", "Jain", "Vegan"])
-        rp_mode = st.selectbox("Consultation Mode", ["In-person", "Teleconsultation", "Either"])
-        rp_budget = st.number_input("Max Consultation Budget (INR)", min_value=0.0, value=800.0, step=50.0)
+        rp_diet = p5.selectbox("Diet Preference", ["Balanced", "Vegetarian", "Non-Vegetarian", "Jain", "Vegan"])
+        rp_mode = p6.selectbox("Consultation Mode", ["In-person", "Teleconsultation", "Either"])
+        rp_budget = p7.number_input("Max Consultation Budget (INR)", min_value=0.0, value=800.0, step=50.0)
         rp_specialties = st.text_input("Preferred Specialties", placeholder="General Physician, Diabetologist")
-        pref_submit = st.form_submit_button("Save Regional Preferences")
+        pref_submit = st.form_submit_button("Save Regional Preferences", type="primary")
 
     if pref_submit:
         if rp_patient.strip():
@@ -561,3 +830,12 @@ with tab6:
     if pref_rows:
         st.markdown("#### Saved Regional Preferences")
         st.dataframe(pd.DataFrame(pref_rows), use_container_width=True)
+
+st.markdown(
+    """
+    <div class="app-footer">
+        Healthcare Monitoring AI Agent • Track A • Streamlit Professional Interface
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
