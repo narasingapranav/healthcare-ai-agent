@@ -1,22 +1,44 @@
 from datetime import datetime
 from typing import Any
+import logging
 
 from bson import ObjectId
 from pymongo import ASCENDING, DESCENDING, MongoClient
 from pymongo.collection import Collection
 from pymongo.database import Database
+from pymongo.errors import PyMongoError, ConnectionFailure, ServerSelectionTimeoutError
 
 from .config import MONGODB_DB_NAME, MONGODB_URI
+
+# Configure logging
+logger = logging.getLogger(__name__)
+
+
+class DatabaseError(Exception):
+    """Custom exception for database operation failures."""
+    pass
 
 
 _client: MongoClient | None = None
 
 
 def _get_database() -> Database:
+    """Get MongoDB database with error handling."""
     global _client
-    if _client is None:
-        _client = MongoClient(MONGODB_URI, serverSelectionTimeoutMS=3000)
-    return _client[MONGODB_DB_NAME]
+    try:
+        if _client is None:
+            _client = MongoClient(MONGODB_URI, serverSelectionTimeoutMS=3000)
+        # Verify connection
+        _client.admin.command('ping')
+        return _client[MONGODB_DB_NAME]
+    except (ConnectionFailure, ServerSelectionTimeoutError) as e:
+        logger.error(f"MongoDB connection failed: {str(e)}")
+        raise DatabaseError(
+            f"Failed to connect to MongoDB. Please ensure MongoDB is running at {MONGODB_URI}. Error: {str(e)}"
+        ) from e
+    except Exception as e:
+        logger.error(f"Unexpected database error: {str(e)}")
+        raise DatabaseError(f"Database initialization error: {str(e)}") from e
 
 
 def _metrics_collection() -> Collection:
@@ -60,44 +82,65 @@ def _to_object_id(value: Any) -> ObjectId | None:
 
 
 def init_db() -> None:
-    metrics = _metrics_collection()
-    medications = _medications_collection()
-    goals = _goals_collection()
-    indian_medications = _indian_medications_collection()
-    nutrition_logs = _nutrition_logs_collection()
-    insurance_profiles = _insurance_profiles_collection()
-    medical_history = _medical_history_collection()
-    regional_preferences = _regional_preferences_collection()
+    """Initialize database collections and indexes with error handling."""
+    try:
+        metrics = _metrics_collection()
+        medications = _medications_collection()
+        goals = _goals_collection()
+        indian_medications = _indian_medications_collection()
+        nutrition_logs = _nutrition_logs_collection()
+        insurance_profiles = _insurance_profiles_collection()
+        medical_history = _medical_history_collection()
+        regional_preferences = _regional_preferences_collection()
 
-    metrics.create_index([("recorded_at_dt", DESCENDING)])
-    medications.create_index([("active", ASCENDING), ("schedule_time", ASCENDING)])
-    goals.create_index([("active", ASCENDING), ("created_at", DESCENDING)])
-    indian_medications.create_index([("name", ASCENDING), ("source", ASCENDING)], unique=True)
-    indian_medications.create_index([("updated_at", DESCENDING)])
-    nutrition_logs.create_index([("meal_date", DESCENDING), ("created_at", DESCENDING)])
-    nutrition_logs.create_index([("region", ASCENDING)])
-    insurance_profiles.create_index([("patient_name", ASCENDING), ("policy_number", ASCENDING)], unique=True)
-    insurance_profiles.create_index([("updated_at", DESCENDING)])
-    medical_history.create_index([("patient_name", ASCENDING), ("created_at", DESCENDING)])
-    regional_preferences.create_index([("patient_name", ASCENDING)], unique=True)
-    regional_preferences.create_index([("updated_at", DESCENDING)])
+        # Create indexes
+        metrics.create_index([("recorded_at_dt", DESCENDING)])
+        medications.create_index([("active", ASCENDING), ("schedule_time", ASCENDING)])
+        goals.create_index([("active", ASCENDING), ("created_at", DESCENDING)])
+        indian_medications.create_index([("name", ASCENDING), ("source", ASCENDING)], unique=True)
+        indian_medications.create_index([("updated_at", DESCENDING)])
+        nutrition_logs.create_index([("meal_date", DESCENDING), ("created_at", DESCENDING)])
+        nutrition_logs.create_index([("region", ASCENDING)])
+        insurance_profiles.create_index([("patient_name", ASCENDING), ("policy_number", ASCENDING)], unique=True)
+        insurance_profiles.create_index([("updated_at", DESCENDING)])
+        medical_history.create_index([("patient_name", ASCENDING), ("created_at", DESCENDING)])
+        regional_preferences.create_index([("patient_name", ASCENDING)], unique=True)
+        regional_preferences.create_index([("updated_at", DESCENDING)])
+        
+        logger.info("Database initialized successfully with all indexes created.")
+    except PyMongoError as e:
+        logger.error(f"Index creation failed: {str(e)}")
+        raise DatabaseError(f"Failed to initialize database indexes: {str(e)}") from e
+    except Exception as e:
+        logger.error(f"Unexpected error during database initialization: {str(e)}")
+        raise DatabaseError(f"Database initialization failed: {str(e)}") from e
 
 
 def add_health_metric(metric_name: str, metric_value: float, unit: str, recorded_at: str) -> None:
+    """Add health metric with error handling."""
     try:
-        recorded_at_dt = datetime.fromisoformat(recorded_at)
-    except ValueError:
-        recorded_at_dt = datetime.utcnow()
+        try:
+            recorded_at_dt = datetime.fromisoformat(recorded_at)
+        except ValueError:
+            logger.warning(f"Invalid timestamp format '{recorded_at}', using current time.")
+            recorded_at_dt = datetime.utcnow()
 
-    _metrics_collection().insert_one(
-        {
-            "metric_name": metric_name,
-            "metric_value": metric_value,
-            "unit": unit,
-            "recorded_at": recorded_at,
-            "recorded_at_dt": recorded_at_dt,
-        }
-    )
+        _metrics_collection().insert_one(
+            {
+                "metric_name": metric_name,
+                "metric_value": metric_value,
+                "unit": unit,
+                "recorded_at": recorded_at,
+                "recorded_at_dt": recorded_at_dt,
+            }
+        )
+        logger.info(f"Health metric '{metric_name}' saved successfully (value: {metric_value} {unit})")
+    except PyMongoError as e:
+        logger.error(f"Failed to save health metric: {str(e)}")
+        raise DatabaseError(f"Failed to save health metric '{metric_name}': {str(e)}") from e
+    except Exception as e:
+        logger.error(f"Unexpected error saving health metric: {str(e)}")
+        raise DatabaseError(f"Error saving health metric: {str(e)}") from e
 
 
 def list_recent_metrics(limit: int = 20) -> list[dict[str, Any]]:
@@ -119,17 +162,26 @@ def list_all_metrics() -> list[dict[str, Any]]:
 
 
 def add_medication(name: str, dosage: str, schedule_time: str, notes: str = "") -> None:
-    now = datetime.utcnow()
-    _medications_collection().insert_one(
-        {
-            "name": name,
-            "dosage": dosage,
-            "schedule_time": schedule_time,
-            "notes": notes,
-            "active": True,
-            "created_at": now,
-        }
-    )
+    """Add medication with error handling."""
+    try:
+        now = datetime.utcnow()
+        _medications_collection().insert_one(
+            {
+                "name": name,
+                "dosage": dosage,
+                "schedule_time": schedule_time,
+                "notes": notes,
+                "active": True,
+                "created_at": now,
+            }
+        )
+        logger.info(f"Medication '{name}' ({dosage}) scheduled successfully.")
+    except PyMongoError as e:
+        logger.error(f"Failed to add medication: {str(e)}")
+        raise DatabaseError(f"Failed to add medication '{name}': {str(e)}") from e
+    except Exception as e:
+        logger.error(f"Unexpected error adding medication: {str(e)}")
+        raise DatabaseError(f"Error adding medication: {str(e)}") from e
 
 
 def list_medications(active_only: bool = True) -> list[dict[str, Any]]:
@@ -269,22 +321,31 @@ def add_nutrition_log(
     fiber_g: float,
     notes: str = "",
 ) -> None:
-    _nutrition_logs_collection().insert_one(
-        {
-            "meal_date": meal_date,
-            "meal_type": meal_type,
-            "region": region,
-            "food_item": food_item,
-            "quantity": quantity,
-            "calories": calories,
-            "protein_g": protein_g,
-            "carbs_g": carbs_g,
-            "fats_g": fats_g,
-            "fiber_g": fiber_g,
-            "notes": notes,
-            "created_at": datetime.utcnow(),
-        }
-    )
+    """Add nutrition log with error handling."""
+    try:
+        _nutrition_logs_collection().insert_one(
+            {
+                "meal_date": meal_date,
+                "meal_type": meal_type,
+                "region": region,
+                "food_item": food_item,
+                "quantity": quantity,
+                "calories": calories,
+                "protein_g": protein_g,
+                "carbs_g": carbs_g,
+                "fats_g": fats_g,
+                "fiber_g": fiber_g,
+                "notes": notes,
+                "created_at": datetime.utcnow(),
+            }
+        )
+        logger.info(f"Nutrition log for '{food_item}' ({calories} cal) saved successfully.")
+    except PyMongoError as e:
+        logger.error(f"Failed to add nutrition log: {str(e)}")
+        raise DatabaseError(f"Failed to save nutrition log for '{food_item}': {str(e)}") from e
+    except Exception as e:
+        logger.error(f"Unexpected error adding nutrition log: {str(e)}")
+        raise DatabaseError(f"Error adding nutrition log: {str(e)}") from e
 
 
 def list_nutrition_logs(patient_region: str = "", limit: int = 100) -> list[dict[str, Any]]:
@@ -324,24 +385,36 @@ def upsert_insurance_profile(
     expiry_date: str,
     network_hospitals: str,
 ) -> None:
-    now = datetime.utcnow()
-    _insurance_profiles_collection().update_one(
-        {"patient_name": patient_name.strip(), "policy_number": policy_number.strip()},
-        {
-            "$set": {
-                "patient_name": patient_name.strip(),
-                "insurer": insurer.strip(),
-                "policy_number": policy_number.strip(),
-                "policy_type": policy_type.strip(),
-                "sum_insured": sum_insured,
-                "expiry_date": expiry_date.strip(),
-                "network_hospitals": network_hospitals.strip(),
-                "updated_at": now,
+    """Upsert insurance profile with error handling."""
+    try:
+        now = datetime.utcnow()
+        result = _insurance_profiles_collection().update_one(
+            {"patient_name": patient_name.strip(), "policy_number": policy_number.strip()},
+            {
+                "$set": {
+                    "patient_name": patient_name.strip(),
+                    "insurer": insurer.strip(),
+                    "policy_number": policy_number.strip(),
+                    "policy_type": policy_type.strip(),
+                    "sum_insured": sum_insured,
+                    "expiry_date": expiry_date.strip(),
+                    "network_hospitals": network_hospitals.strip(),
+                    "updated_at": now,
+                },
+                "$setOnInsert": {"created_at": now},
             },
-            "$setOnInsert": {"created_at": now},
-        },
-        upsert=True,
-    )
+            upsert=True,
+        )
+        if result.upserted_id:
+            logger.info(f"Insurance profile created for patient '{patient_name}' (Policy: {policy_number}).")
+        else:
+            logger.info(f"Insurance profile updated for patient '{patient_name}'.")
+    except PyMongoError as e:
+        logger.error(f"Failed to upsert insurance profile: {str(e)}")
+        raise DatabaseError(f"Failed to save insurance profile for '{patient_name}': {str(e)}") from e
+    except Exception as e:
+        logger.error(f"Unexpected error upserting insurance profile: {str(e)}")
+        raise DatabaseError(f"Error saving insurance profile: {str(e)}") from e
 
 
 def list_insurance_profiles(patient_name: str = "", limit: int = 50) -> list[dict[str, Any]]:
@@ -377,18 +450,27 @@ def add_medical_history_record(
     procedures_done: str,
     notes: str,
 ) -> None:
-    _medical_history_collection().insert_one(
-        {
-            "patient_name": patient_name.strip(),
-            "condition_name": condition_name.strip(),
-            "diagnosis_date": diagnosis_date.strip(),
-            "medications": medications.strip(),
-            "allergies": allergies.strip(),
-            "procedures_done": procedures_done.strip(),
-            "notes": notes.strip(),
-            "created_at": datetime.utcnow(),
-        }
-    )
+    """Add medical history record with error handling."""
+    try:
+        _medical_history_collection().insert_one(
+            {
+                "patient_name": patient_name.strip(),
+                "condition_name": condition_name.strip(),
+                "diagnosis_date": diagnosis_date.strip(),
+                "medications": medications.strip(),
+                "allergies": allergies.strip(),
+                "procedures_done": procedures_done.strip(),
+                "notes": notes.strip(),
+                "created_at": datetime.utcnow(),
+            }
+        )
+        logger.info(f"Medical history record for patient '{patient_name}' (Condition: {condition_name}) saved.")
+    except PyMongoError as e:
+        logger.error(f"Failed to add medical history record: {str(e)}")
+        raise DatabaseError(f"Failed to save medical history for '{patient_name}': {str(e)}") from e
+    except Exception as e:
+        logger.error(f"Unexpected error adding medical history: {str(e)}")
+        raise DatabaseError(f"Error adding medical history: {str(e)}") from e
 
 
 def list_medical_history(patient_name: str = "", limit: int = 100) -> list[dict[str, Any]]:
@@ -425,25 +507,37 @@ def upsert_regional_preference(
     max_budget_inr: float,
     preferred_specialties: str,
 ) -> None:
-    now = datetime.utcnow()
-    _regional_preferences_collection().update_one(
-        {"patient_name": patient_name.strip()},
-        {
-            "$set": {
-                "patient_name": patient_name.strip(),
-                "state": state.strip(),
-                "city": city.strip(),
-                "preferred_language": preferred_language.strip(),
-                "diet_preference": diet_preference.strip(),
-                "consultation_mode": consultation_mode.strip(),
-                "max_budget_inr": max_budget_inr,
-                "preferred_specialties": preferred_specialties.strip(),
-                "updated_at": now,
+    """Upsert regional preference with error handling."""
+    try:
+        now = datetime.utcnow()
+        result = _regional_preferences_collection().update_one(
+            {"patient_name": patient_name.strip()},
+            {
+                "$set": {
+                    "patient_name": patient_name.strip(),
+                    "state": state.strip(),
+                    "city": city.strip(),
+                    "preferred_language": preferred_language.strip(),
+                    "diet_preference": diet_preference.strip(),
+                    "consultation_mode": consultation_mode.strip(),
+                    "max_budget_inr": max_budget_inr,
+                    "preferred_specialties": preferred_specialties.strip(),
+                    "updated_at": now,
+                },
+                "$setOnInsert": {"created_at": now},
             },
-            "$setOnInsert": {"created_at": now},
-        },
-        upsert=True,
-    )
+            upsert=True,
+        )
+        if result.upserted_id:
+            logger.info(f"Regional preference created for patient '{patient_name}'.")
+        else:
+            logger.info(f"Regional preference updated for patient '{patient_name}'.")
+    except PyMongoError as e:
+        logger.error(f"Failed to upsert regional preference: {str(e)}")
+        raise DatabaseError(f"Failed to save regional preference for '{patient_name}': {str(e)}") from e
+    except Exception as e:
+        logger.error(f"Unexpected error upserting regional preference: {str(e)}")
+        raise DatabaseError(f"Error saving regional preference: {str(e)}") from e
 
 
 def list_regional_preferences(patient_name: str = "", limit: int = 50) -> list[dict[str, Any]]:

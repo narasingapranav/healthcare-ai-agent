@@ -38,6 +38,16 @@ from src.medical_lookup import get_medical_info
 from src.medication_interactions import check_interactions
 from src.medication import upcoming_reminders
 from src.reporting import generate_health_report
+from src.validators import (
+    ValidationError,
+    validate_medication,
+    validate_nutrition_log,
+    validate_insurance_profile,
+    validate_medical_history,
+    validate_regional_preference,
+    validate_health_metric,
+    validate_health_goal,
+)
 
 st.set_page_config(page_title="Healthcare AI Agent - Track A", layout="wide")
 
@@ -271,12 +281,28 @@ if selected_section == "Medication Scheduler":
         submitted = st.form_submit_button("Add Medication", type="primary")
 
     if submitted:
-        if med_name.strip() and dosage.strip():
-            add_medication(med_name.strip(), dosage.strip(), schedule.strftime("%H:%M"), notes.strip())
-            st.success("Medication schedule added.")
-            st.rerun()
-        else:
-            st.error("Medicine name and dosage are required.")
+        try:
+            if not med_name.strip() or not dosage.strip():
+                st.error("Medicine name and dosage are required.")
+            else:
+                validated_med = validate_medication(
+                    name=med_name,
+                    dosage=dosage,
+                    schedule=schedule.strftime("%H:%M"),
+                    active=True
+                )
+                add_medication(
+                    validated_med["name"],
+                    validated_med["dosage"],
+                    validated_med["schedule"],
+                    notes.strip()
+                )
+                st.success("✅ Medication schedule added successfully.")
+                st.rerun()
+        except ValidationError as e:
+            st.error(f"❌ Medication validation failed: {str(e)}")
+        except Exception as e:
+            st.error(f"❌ Error adding medication: {str(e)}")
 
     st.divider()
     st.markdown("### Active Schedules")
@@ -330,12 +356,16 @@ if selected_section == "Health Metrics":
 
     if metric_submit:
         try:
-            clean_name, value, clean_unit, timestamp = parse_metric_input(metric_name, metric_value, unit)
+            clean_name, value, clean_unit, timestamp = validate_health_metric(metric_name, metric_value, unit)
             add_health_metric(clean_name, value, clean_unit, timestamp)
-            st.success("Health metric saved.")
+            st.success("✅ Health metric saved successfully.")
             st.rerun()
+        except ValidationError as error:
+            st.error(f"❌ Metric validation failed: {str(error)}")
         except ValueError as error:
-            st.error(str(error))
+            st.error(f"❌ Invalid metric value: {str(error)}")
+        except Exception as error:
+            st.error(f"❌ Error saving health metric: {str(error)}")
 
     st.divider()
     st.markdown("### Import Fitness Data (CSV/JSON/XML)")
@@ -354,20 +384,26 @@ if selected_section == "Health Metrics":
                     parsed_metrics = parse_metrics_xml_text(payload)
 
                 for item in parsed_metrics:
-                    add_health_metric(
-                        str(item["metric_name"]),
-                        float(item["metric_value"]),
-                        str(item["unit"]),
-                        str(item["recorded_at"]),
-                    )
+                    try:
+                        add_health_metric(
+                            str(item["metric_name"]),
+                            float(item["metric_value"]),
+                            str(item["unit"]),
+                            str(item["recorded_at"]),
+                        )
+                    except (ValidationError, ValueError) as e:
+                        st.warning(f"Skipped row: {str(e)}")
+                        continue
 
                 if parsed_metrics:
-                    st.success(f"Imported {len(parsed_metrics)} fitness records.")
+                    st.success(f"✅ Imported {len(parsed_metrics)} fitness records successfully.")
                     st.rerun()
                 else:
                     st.info("No rows found in uploaded file.")
+            except ValueError as error:
+                st.error(f"❌ File format error. Please ensure file contains valid metric data. Details: {str(error)}")
             except Exception as error:
-                st.error(f"Could not import file. Please check file format. Details: {error}")
+                st.error(f"❌ Could not import file. Details: {str(error)}")
 
     records = list_recent_metrics(limit=50)
     if records:
@@ -671,34 +707,55 @@ if selected_section == "Indian Health":
         diet_submit = st.form_submit_button("Save Meal and Get Recommendations", type="primary")
 
     if diet_submit:
-        if food_item.strip():
-            add_nutrition_log(
-                meal_date=pd.Timestamp.utcnow().date().isoformat(),
-                meal_type=meal_type,
-                region=diet_region,
-                food_item=food_item.strip(),
-                quantity=quantity.strip(),
-                calories=float(calories),
-                protein_g=float(protein_g),
-                carbs_g=float(carbs_g),
-                fats_g=float(fats_g),
-                fiber_g=float(fiber_g),
-                notes=nutrition_notes.strip(),
-            )
-            st.success("Nutrition log saved in MongoDB.")
+        try:
+            if not food_item.strip():
+                st.error("Food item is required.")
+            else:
+                # Validate nutrition data
+                validated_nutrition = validate_nutrition_log(
+                    meal_type=meal_type,
+                    calories=str(calories),
+                    protein=str(protein_g),
+                    carbs=str(carbs_g),
+                    fat=str(fats_g),
+                    meal_date=pd.Timestamp.utcnow().date().isoformat(),
+                    region=diet_region
+                )
+                
+                add_nutrition_log(
+                    meal_date=validated_nutrition["meal_date"],
+                    meal_type=validated_nutrition["meal_type"],
+                    region=validated_nutrition["region"],
+                    food_item=food_item.strip(),
+                    quantity=quantity.strip(),
+                    calories=validated_nutrition["calories"],
+                    protein_g=validated_nutrition["protein"],
+                    carbs_g=validated_nutrition["carbs"],
+                    fats_g=validated_nutrition["fat"],
+                    fiber_g=float(fiber_g),
+                    notes=nutrition_notes.strip(),
+                )
+                st.success("✅ Nutrition log saved successfully.")
 
-            recommendation = indian_health.get_indian_dietary_recommendations(
-                region=diet_region,
-                health_goal=health_goal,
-                diet_preference=diet_preference,
-            )
-            st.markdown("#### Recommended Foods")
-            st.write(", ".join(recommendation.get("recommended_foods", [])) or "No recommendations available.")
-            st.caption("Limit: " + ", ".join(recommendation.get("avoid_or_limit", [])))
-            st.info(recommendation.get("hydration_tip", ""))
-            st.caption(recommendation.get("disclaimer", ""))
-        else:
-            st.error("Food item is required.")
+                try:
+                    recommendation = indian_health.get_indian_dietary_recommendations(
+                        region=diet_region,
+                        health_goal=health_goal,
+                        diet_preference=diet_preference,
+                    )
+                    st.markdown("#### Recommended Foods")
+                    st.write(", ".join(recommendation.get("recommended_foods", [])) or "No recommendations available.")
+                    st.caption("Limit: " + ", ".join(recommendation.get("avoid_or_limit", [])))
+                    st.info(recommendation.get("hydration_tip", ""))
+                    st.caption(recommendation.get("disclaimer", ""))
+                except Exception as rec_error:
+                    st.warning(f"Could not fetch recommendations: {str(rec_error)}")
+        except ValidationError as e:
+            st.error(f"❌ Nutrition data validation failed: {str(e)}")
+        except ValueError as e:
+            st.error(f"❌ Invalid nutrition value: {str(e)}")
+        except Exception as e:
+            st.error(f"❌ Error saving nutrition log: {str(e)}")
 
     nutrition_region_filter = st.text_input("Filter nutrition logs by region", placeholder="South")
     nutrition_logs = list_nutrition_logs(patient_region=nutrition_region_filter, limit=100)
@@ -720,19 +777,31 @@ if selected_section == "Indian Health":
         insurance_submit = st.form_submit_button("Save Insurance Profile", type="primary")
 
     if insurance_submit:
-        if patient_name.strip() and insurer.strip() and policy_number.strip():
-            upsert_insurance_profile(
-                patient_name=patient_name.strip(),
-                insurer=insurer.strip(),
-                policy_number=policy_number.strip(),
-                policy_type=policy_type,
-                sum_insured=float(sum_insured),
-                expiry_date=expiry_date.isoformat(),
-                network_hospitals=network_hospitals.strip(),
-            )
-            st.success("Insurance profile saved in MongoDB.")
-        else:
-            st.error("Patient name, insurer, and policy number are required.")
+        try:
+            if not patient_name.strip() or not insurer.strip() or not policy_number.strip():
+                st.error("Patient name, insurer, and policy number are required.")
+            else:
+                validated_insurance = validate_insurance_profile(
+                    patient_name=patient_name,
+                    policy_number=policy_number,
+                    provider=insurer,
+                    policy_type=policy_type,
+                    coverage_limit=str(sum_insured)
+                )
+                upsert_insurance_profile(
+                    patient_name=validated_insurance["patient_name"],
+                    insurer=validated_insurance["provider"],
+                    policy_number=validated_insurance["policy_number"],
+                    policy_type=validated_insurance["policy_type"],
+                    sum_insured=validated_insurance["coverage_limit"],
+                    expiry_date=expiry_date.isoformat(),
+                    network_hospitals=network_hospitals.strip(),
+                )
+                st.success("✅ Insurance profile saved successfully.")
+        except ValidationError as e:
+            st.error(f"❌ Insurance validation failed: {str(e)}")
+        except Exception as e:
+            st.error(f"❌ Error saving insurance profile: {str(e)}")
 
     with st.form("medical_history_form"):
         h1, h2, h3 = st.columns(3)
@@ -747,19 +816,29 @@ if selected_section == "Indian Health":
         history_submit = st.form_submit_button("Add Medical History Record", type="primary")
 
     if history_submit:
-        if mh_patient_name.strip() and condition_name.strip():
-            add_medical_history_record(
-                patient_name=mh_patient_name.strip(),
-                condition_name=condition_name.strip(),
-                diagnosis_date=diagnosis_date.isoformat(),
-                medications=current_medications.strip(),
-                allergies=allergies.strip(),
-                procedures_done=procedures_done.strip(),
-                notes=history_notes.strip(),
-            )
-            st.success("Medical history record saved in MongoDB.")
-        else:
-            st.error("Patient name and condition are required.")
+        try:
+            if not mh_patient_name.strip() or not condition_name.strip():
+                st.error("Patient name and condition are required.")
+            else:
+                validated_history = validate_medical_history(
+                    condition=condition_name,
+                    diagnosis_date=diagnosis_date.isoformat(),
+                    treatment=current_medications.strip()
+                )
+                add_medical_history_record(
+                    patient_name=mh_patient_name.strip(),
+                    condition_name=validated_history["condition"],
+                    diagnosis_date=validated_history["diagnosis_date"],
+                    medications=current_medications.strip(),
+                    allergies=allergies.strip(),
+                    procedures_done=procedures_done.strip(),
+                    notes=history_notes.strip(),
+                )
+                st.success("✅ Medical history record saved successfully.")
+        except ValidationError as e:
+            st.error(f"❌ Medical history validation failed: {str(e)}")
+        except Exception as e:
+            st.error(f"❌ Error saving medical history: {str(e)}")
 
     patient_filter = st.text_input("Filter insurance/history by patient", placeholder="Amit")
     insurance_rows = list_insurance_profiles(patient_name=patient_filter, limit=50)
@@ -790,30 +869,45 @@ if selected_section == "Indian Health":
         pref_submit = st.form_submit_button("Save Regional Preferences", type="primary")
 
     if pref_submit:
-        if rp_patient.strip():
-            upsert_regional_preference(
-                patient_name=rp_patient.strip(),
-                state=rp_state.strip(),
-                city=rp_city.strip(),
-                preferred_language=rp_language,
-                diet_preference=rp_diet,
-                consultation_mode=rp_mode,
-                max_budget_inr=float(rp_budget),
-                preferred_specialties=rp_specialties.strip(),
-            )
-            st.success("Regional preferences saved in MongoDB.")
-        else:
-            st.error("Patient name is required.")
+        try:
+            if not rp_patient.strip():
+                st.error("Patient name is required.")
+            else:
+                validated_pref = validate_regional_preference(
+                    region=rp_state.strip() or "Not specified",
+                    preferred_language=rp_language,
+                    preferred_doctor_type=""
+                )
+                upsert_regional_preference(
+                    patient_name=rp_patient.strip(),
+                    state=rp_state.strip(),
+                    city=rp_city.strip(),
+                    preferred_language=validated_pref["preferred_language"],
+                    diet_preference=rp_diet,
+                    consultation_mode=rp_mode,
+                    max_budget_inr=float(rp_budget),
+                    preferred_specialties=rp_specialties.strip(),
+                )
+                st.success("✅ Regional preferences saved successfully.")
+        except ValidationError as e:
+            st.error(f"❌ Regional preference validation failed: {str(e)}")
+        except Exception as e:
+            st.error(f"❌ Error saving regional preferences: {str(e)}")
 
     specialty_query = st.text_input("Search specialty in local network", placeholder="General Physician")
-    local_doctors = indian_health.get_local_doctor_network(
-        city=rp_city,
-        state=rp_state,
-        specialty=specialty_query,
-        preferred_language=rp_language,
-        max_fee_inr=float(rp_budget),
-    )
-    practo_local = indian_health.search_practo_doctors(rp_city, specialty_query or "General Physician", limit=5)
+    try:
+        local_doctors = indian_health.get_local_doctor_network(
+            city=rp_city,
+            state=rp_state,
+            specialty=specialty_query,
+            preferred_language=rp_language,
+            max_fee_inr=float(rp_budget),
+        )
+        practo_local = indian_health.search_practo_doctors(rp_city, specialty_query or "General Physician", limit=5)
+    except Exception as e:
+        st.error(f"❌ Error fetching doctor networks: {str(e)}")
+        local_doctors = []
+        practo_local = []
 
     if local_doctors:
         st.markdown("#### Local Doctor Network")
