@@ -35,6 +35,22 @@ def _indian_medications_collection() -> Collection:
     return _get_database()["indian_medications"]
 
 
+def _nutrition_logs_collection() -> Collection:
+    return _get_database()["nutrition_logs"]
+
+
+def _insurance_profiles_collection() -> Collection:
+    return _get_database()["insurance_profiles"]
+
+
+def _medical_history_collection() -> Collection:
+    return _get_database()["medical_history"]
+
+
+def _regional_preferences_collection() -> Collection:
+    return _get_database()["regional_preferences"]
+
+
 def _to_object_id(value: Any) -> ObjectId | None:
     if isinstance(value, ObjectId):
         return value
@@ -48,12 +64,23 @@ def init_db() -> None:
     medications = _medications_collection()
     goals = _goals_collection()
     indian_medications = _indian_medications_collection()
+    nutrition_logs = _nutrition_logs_collection()
+    insurance_profiles = _insurance_profiles_collection()
+    medical_history = _medical_history_collection()
+    regional_preferences = _regional_preferences_collection()
 
     metrics.create_index([("recorded_at_dt", DESCENDING)])
     medications.create_index([("active", ASCENDING), ("schedule_time", ASCENDING)])
     goals.create_index([("active", ASCENDING), ("created_at", DESCENDING)])
     indian_medications.create_index([("name", ASCENDING), ("source", ASCENDING)], unique=True)
     indian_medications.create_index([("updated_at", DESCENDING)])
+    nutrition_logs.create_index([("meal_date", DESCENDING), ("created_at", DESCENDING)])
+    nutrition_logs.create_index([("region", ASCENDING)])
+    insurance_profiles.create_index([("patient_name", ASCENDING), ("policy_number", ASCENDING)], unique=True)
+    insurance_profiles.create_index([("updated_at", DESCENDING)])
+    medical_history.create_index([("patient_name", ASCENDING), ("created_at", DESCENDING)])
+    regional_preferences.create_index([("patient_name", ASCENDING)], unique=True)
+    regional_preferences.create_index([("updated_at", DESCENDING)])
 
 
 def add_health_metric(metric_name: str, metric_value: float, unit: str, recorded_at: str) -> None:
@@ -227,3 +254,218 @@ def list_indian_medications(search: str = "", source: str = "", limit: int = 25)
             }
         )
     return records
+
+
+def add_nutrition_log(
+    meal_date: str,
+    meal_type: str,
+    region: str,
+    food_item: str,
+    quantity: str,
+    calories: float,
+    protein_g: float,
+    carbs_g: float,
+    fats_g: float,
+    fiber_g: float,
+    notes: str = "",
+) -> None:
+    _nutrition_logs_collection().insert_one(
+        {
+            "meal_date": meal_date,
+            "meal_type": meal_type,
+            "region": region,
+            "food_item": food_item,
+            "quantity": quantity,
+            "calories": calories,
+            "protein_g": protein_g,
+            "carbs_g": carbs_g,
+            "fats_g": fats_g,
+            "fiber_g": fiber_g,
+            "notes": notes,
+            "created_at": datetime.utcnow(),
+        }
+    )
+
+
+def list_nutrition_logs(patient_region: str = "", limit: int = 100) -> list[dict[str, Any]]:
+    query: dict[str, Any] = {}
+    if patient_region.strip():
+        query["region"] = {"$regex": patient_region.strip(), "$options": "i"}
+
+    cursor = _nutrition_logs_collection().find(query).sort("created_at", DESCENDING).limit(limit)
+    rows: list[dict[str, Any]] = []
+    for document in cursor:
+        rows.append(
+            {
+                "id": str(document.get("_id")),
+                "meal_date": document.get("meal_date", ""),
+                "meal_type": document.get("meal_type", ""),
+                "region": document.get("region", ""),
+                "food_item": document.get("food_item", ""),
+                "quantity": document.get("quantity", ""),
+                "calories": document.get("calories", 0.0),
+                "protein_g": document.get("protein_g", 0.0),
+                "carbs_g": document.get("carbs_g", 0.0),
+                "fats_g": document.get("fats_g", 0.0),
+                "fiber_g": document.get("fiber_g", 0.0),
+                "notes": document.get("notes", ""),
+                "created_at": document.get("created_at"),
+            }
+        )
+    return rows
+
+
+def upsert_insurance_profile(
+    patient_name: str,
+    insurer: str,
+    policy_number: str,
+    policy_type: str,
+    sum_insured: float,
+    expiry_date: str,
+    network_hospitals: str,
+) -> None:
+    now = datetime.utcnow()
+    _insurance_profiles_collection().update_one(
+        {"patient_name": patient_name.strip(), "policy_number": policy_number.strip()},
+        {
+            "$set": {
+                "patient_name": patient_name.strip(),
+                "insurer": insurer.strip(),
+                "policy_number": policy_number.strip(),
+                "policy_type": policy_type.strip(),
+                "sum_insured": sum_insured,
+                "expiry_date": expiry_date.strip(),
+                "network_hospitals": network_hospitals.strip(),
+                "updated_at": now,
+            },
+            "$setOnInsert": {"created_at": now},
+        },
+        upsert=True,
+    )
+
+
+def list_insurance_profiles(patient_name: str = "", limit: int = 50) -> list[dict[str, Any]]:
+    query: dict[str, Any] = {}
+    if patient_name.strip():
+        query["patient_name"] = {"$regex": patient_name.strip(), "$options": "i"}
+
+    cursor = _insurance_profiles_collection().find(query).sort("updated_at", DESCENDING).limit(limit)
+    rows: list[dict[str, Any]] = []
+    for document in cursor:
+        rows.append(
+            {
+                "id": str(document.get("_id")),
+                "patient_name": document.get("patient_name", ""),
+                "insurer": document.get("insurer", ""),
+                "policy_number": document.get("policy_number", ""),
+                "policy_type": document.get("policy_type", ""),
+                "sum_insured": document.get("sum_insured", 0.0),
+                "expiry_date": document.get("expiry_date", ""),
+                "network_hospitals": document.get("network_hospitals", ""),
+                "updated_at": document.get("updated_at"),
+            }
+        )
+    return rows
+
+
+def add_medical_history_record(
+    patient_name: str,
+    condition_name: str,
+    diagnosis_date: str,
+    medications: str,
+    allergies: str,
+    procedures_done: str,
+    notes: str,
+) -> None:
+    _medical_history_collection().insert_one(
+        {
+            "patient_name": patient_name.strip(),
+            "condition_name": condition_name.strip(),
+            "diagnosis_date": diagnosis_date.strip(),
+            "medications": medications.strip(),
+            "allergies": allergies.strip(),
+            "procedures_done": procedures_done.strip(),
+            "notes": notes.strip(),
+            "created_at": datetime.utcnow(),
+        }
+    )
+
+
+def list_medical_history(patient_name: str = "", limit: int = 100) -> list[dict[str, Any]]:
+    query: dict[str, Any] = {}
+    if patient_name.strip():
+        query["patient_name"] = {"$regex": patient_name.strip(), "$options": "i"}
+
+    cursor = _medical_history_collection().find(query).sort("created_at", DESCENDING).limit(limit)
+    rows: list[dict[str, Any]] = []
+    for document in cursor:
+        rows.append(
+            {
+                "id": str(document.get("_id")),
+                "patient_name": document.get("patient_name", ""),
+                "condition_name": document.get("condition_name", ""),
+                "diagnosis_date": document.get("diagnosis_date", ""),
+                "medications": document.get("medications", ""),
+                "allergies": document.get("allergies", ""),
+                "procedures_done": document.get("procedures_done", ""),
+                "notes": document.get("notes", ""),
+                "created_at": document.get("created_at"),
+            }
+        )
+    return rows
+
+
+def upsert_regional_preference(
+    patient_name: str,
+    state: str,
+    city: str,
+    preferred_language: str,
+    diet_preference: str,
+    consultation_mode: str,
+    max_budget_inr: float,
+    preferred_specialties: str,
+) -> None:
+    now = datetime.utcnow()
+    _regional_preferences_collection().update_one(
+        {"patient_name": patient_name.strip()},
+        {
+            "$set": {
+                "patient_name": patient_name.strip(),
+                "state": state.strip(),
+                "city": city.strip(),
+                "preferred_language": preferred_language.strip(),
+                "diet_preference": diet_preference.strip(),
+                "consultation_mode": consultation_mode.strip(),
+                "max_budget_inr": max_budget_inr,
+                "preferred_specialties": preferred_specialties.strip(),
+                "updated_at": now,
+            },
+            "$setOnInsert": {"created_at": now},
+        },
+        upsert=True,
+    )
+
+
+def list_regional_preferences(patient_name: str = "", limit: int = 50) -> list[dict[str, Any]]:
+    query: dict[str, Any] = {}
+    if patient_name.strip():
+        query["patient_name"] = {"$regex": patient_name.strip(), "$options": "i"}
+
+    cursor = _regional_preferences_collection().find(query).sort("updated_at", DESCENDING).limit(limit)
+    rows: list[dict[str, Any]] = []
+    for document in cursor:
+        rows.append(
+            {
+                "id": str(document.get("_id")),
+                "patient_name": document.get("patient_name", ""),
+                "state": document.get("state", ""),
+                "city": document.get("city", ""),
+                "preferred_language": document.get("preferred_language", ""),
+                "diet_preference": document.get("diet_preference", ""),
+                "consultation_mode": document.get("consultation_mode", ""),
+                "max_budget_inr": document.get("max_budget_inr", 0.0),
+                "preferred_specialties": document.get("preferred_specialties", ""),
+                "updated_at": document.get("updated_at"),
+            }
+        )
+    return rows

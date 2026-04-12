@@ -74,6 +74,160 @@ class IndianHealthService:
 
         return self._local_ayurveda_knowledge(remedy)
 
+    def get_indian_dietary_recommendations(
+        self,
+        region: str,
+        health_goal: str,
+        diet_preference: str,
+    ) -> dict[str, Any]:
+        region_text = region.strip().lower()
+        goal_text = health_goal.strip().lower()
+        preference_text = diet_preference.strip().lower()
+
+        region_map: dict[str, list[str]] = {
+            "north": ["roti", "rajma", "dahi", "palak", "chana"],
+            "south": ["idli", "sambar", "rasam", "curd rice", "upma"],
+            "west": ["poha", "thepla", "dal", "sprouts", "bhakri"],
+            "east": ["khichdi", "dal", "saag", "chana", "vegetable stew"],
+            "central": ["millet roti", "dal", "leafy sabzi", "buttermilk"],
+        }
+
+        selected_region = "north"
+        for key in region_map:
+            if key in region_text:
+                selected_region = key
+                break
+
+        foods = region_map[selected_region][:]
+        if "diabet" in goal_text:
+            foods.extend(["millets", "mixed salad", "unsweetened curd"])
+        elif "weight" in goal_text or "fat" in goal_text:
+            foods.extend(["grilled paneer/tofu", "lentil soup", "vegetable stir-fry"])
+        elif "muscle" in goal_text or "protein" in goal_text:
+            foods.extend(["paneer bhurji", "egg bhurji", "soya chunks", "sprouted moong"])
+        elif "heart" in goal_text:
+            foods.extend(["oats", "flaxseed chutney", "fruit bowl", "low-salt dal"])
+
+        avoid_items = ["deep-fried snacks", "high-sugar sweets", "excess sodium pickles"]
+        if "jain" in preference_text:
+            allowed_tokens = (
+                "dal",
+                "roti",
+                "khichdi",
+                "idli",
+                "upma",
+                "poha",
+                "millet",
+                "salad",
+                "vegetable",
+                "sprouted",
+                "curd",
+                "dahi",
+            )
+            foods = [
+                item
+                for item in foods
+                if "egg" not in item and any(token in item for token in allowed_tokens)
+            ]
+        if "vegan" in preference_text:
+            foods = [item for item in foods if "paneer" not in item and "curd" not in item and "dahi" not in item]
+
+        unique_foods = list(dict.fromkeys(foods))
+        return {
+            "region": selected_region.title(),
+            "health_goal": health_goal.strip() or "General Wellness",
+            "diet_preference": diet_preference.strip() or "Balanced",
+            "recommended_foods": unique_foods[:10],
+            "avoid_or_limit": avoid_items,
+            "hydration_tip": "Aim for 2-3 liters of water daily unless medically restricted.",
+            "disclaimer": "These are educational suggestions. Please consult a qualified dietitian for personal medical nutrition therapy.",
+        }
+
+    def get_local_doctor_network(
+        self,
+        city: str,
+        state: str,
+        specialty: str,
+        preferred_language: str,
+        max_fee_inr: float | None = None,
+    ) -> list[dict[str, Any]]:
+        records = [
+            {
+                "name": "Dr. Nisha Verma",
+                "specialty": "General Physician",
+                "city": "Bengaluru",
+                "state": "Karnataka",
+                "languages": ["English", "Hindi", "Kannada"],
+                "consultation_fee_inr": 600.0,
+                "clinic": "Indiranagar Family Clinic",
+                "network": "Local Preferred Network",
+            },
+            {
+                "name": "Dr. Arvind Nair",
+                "specialty": "Cardiologist",
+                "city": "Kochi",
+                "state": "Kerala",
+                "languages": ["English", "Malayalam", "Hindi"],
+                "consultation_fee_inr": 900.0,
+                "clinic": "Lakeside Heart Care",
+                "network": "Regional Cardiac Network",
+            },
+            {
+                "name": "Dr. Priya Kulkarni",
+                "specialty": "Diabetologist",
+                "city": "Pune",
+                "state": "Maharashtra",
+                "languages": ["English", "Marathi", "Hindi"],
+                "consultation_fee_inr": 700.0,
+                "clinic": "Metabolic Health Center",
+                "network": "Western India Endocrine Network",
+            },
+            {
+                "name": "Dr. Sanjay Mehta",
+                "specialty": "General Physician",
+                "city": "Jaipur",
+                "state": "Rajasthan",
+                "languages": ["Hindi", "English"],
+                "consultation_fee_inr": 500.0,
+                "clinic": "Pink City Polyclinic",
+                "network": "North India Primary Care Network",
+            },
+            {
+                "name": "Dr. Ritu Das",
+                "specialty": "Pulmonologist",
+                "city": "Kolkata",
+                "state": "West Bengal",
+                "languages": ["Bengali", "English", "Hindi"],
+                "consultation_fee_inr": 850.0,
+                "clinic": "EastCare Chest Clinic",
+                "network": "Eastern Respiratory Network",
+            },
+        ]
+
+        city_text = city.strip().lower()
+        state_text = state.strip().lower()
+        specialty_text = specialty.strip().lower()
+        language_text = preferred_language.strip().lower()
+
+        filtered = []
+        for doctor in records:
+            if city_text and city_text not in doctor["city"].lower():
+                continue
+            if state_text and state_text not in doctor["state"].lower():
+                continue
+            if specialty_text and specialty_text not in doctor["specialty"].lower():
+                continue
+            if language_text:
+                language_values = [language.lower() for language in doctor.get("languages", [])]
+                if language_text not in language_values:
+                    continue
+            if max_fee_inr is not None and doctor.get("consultation_fee_inr") is not None:
+                if float(doctor["consultation_fee_inr"]) > float(max_fee_inr):
+                    continue
+            filtered.append(doctor)
+
+        return filtered
+
     def _safe_get_json(self, url: str, params: dict[str, Any], api_key: str = "") -> Any:
         try:
             query_string = urlencode({key: value for key, value in params.items() if value is not None})

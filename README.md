@@ -70,6 +70,18 @@ healthcare-ai-agent/
 
 ---
 
+## ⚙️ Features (Week 5-6: Domain Specialization - Option A1)
+
+✅ MongoDB database for Indian medication and domain records  
+✅ Indian dietary recommendations based on region, goal, and diet preference  
+✅ Nutrition tracking (meal logs with macro fields)  
+✅ Indian health insurance profile management  
+✅ Medical history timeline records  
+✅ Regional health preference capture (language, city/state, budget, mode)  
+✅ Local doctor network filtering + Practo regional lookup
+
+---
+
 ## 🧠 Architecture
 
 - **Database Layer** -> `db.py`

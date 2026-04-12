@@ -11,6 +11,8 @@ from src.data_io import (
     parse_metrics_xml_text,
 )
 from src.database import (
+    add_medical_history_record,
+    add_nutrition_log,
     add_health_metric,
     add_health_goal,
     add_medication,
@@ -18,11 +20,17 @@ from src.database import (
     deactivate_medication,
     init_db,
     list_indian_medications,
+    list_insurance_profiles,
+    list_medical_history,
+    list_nutrition_logs,
+    list_regional_preferences,
     list_all_metrics,
     list_health_goals,
     list_medications,
     list_recent_metrics,
+    upsert_insurance_profile,
     upsert_indian_medication,
+    upsert_regional_preference,
 )
 from src.health_parser import parse_metric_input
 from src.indian_health import IndianHealthService
@@ -375,3 +383,181 @@ with tab6:
         st.dataframe(pd.DataFrame(stored_records), use_container_width=True)
     else:
         st.info("No Indian medication records stored yet.")
+
+    st.markdown("### Indian Dietary Recommendations and Nutrition Tracking")
+    with st.form("indian_diet_form"):
+        diet_region = st.selectbox(
+            "Region",
+            ["North India", "South India", "West India", "East India", "Central India"],
+        )
+        health_goal = st.selectbox(
+            "Health Goal",
+            ["General Wellness", "Weight Loss", "Diabetes Management", "Heart Health", "Muscle Gain"],
+        )
+        diet_preference = st.selectbox(
+            "Diet Preference",
+            ["Balanced", "Vegetarian", "Non-Vegetarian", "Jain", "Vegan"],
+        )
+        meal_type = st.selectbox("Meal Type", ["Breakfast", "Lunch", "Dinner", "Snack"])
+        food_item = st.text_input("Food Item", placeholder="e.g., Idli with sambar")
+        quantity = st.text_input("Quantity", placeholder="e.g., 2 pieces")
+        calories = st.number_input("Calories", min_value=0.0, value=250.0, step=10.0)
+        protein_g = st.number_input("Protein (g)", min_value=0.0, value=8.0, step=1.0)
+        carbs_g = st.number_input("Carbs (g)", min_value=0.0, value=30.0, step=1.0)
+        fats_g = st.number_input("Fats (g)", min_value=0.0, value=6.0, step=1.0)
+        fiber_g = st.number_input("Fiber (g)", min_value=0.0, value=3.0, step=0.5)
+        nutrition_notes = st.text_input("Notes", placeholder="Post-workout meal")
+        diet_submit = st.form_submit_button("Save Meal and Get Recommendations")
+
+    if diet_submit:
+        if food_item.strip():
+            add_nutrition_log(
+                meal_date=pd.Timestamp.utcnow().date().isoformat(),
+                meal_type=meal_type,
+                region=diet_region,
+                food_item=food_item.strip(),
+                quantity=quantity.strip(),
+                calories=float(calories),
+                protein_g=float(protein_g),
+                carbs_g=float(carbs_g),
+                fats_g=float(fats_g),
+                fiber_g=float(fiber_g),
+                notes=nutrition_notes.strip(),
+            )
+            st.success("Nutrition log saved in MongoDB.")
+
+            recommendation = indian_health.get_indian_dietary_recommendations(
+                region=diet_region,
+                health_goal=health_goal,
+                diet_preference=diet_preference,
+            )
+            st.markdown("#### Recommended Foods")
+            st.write(", ".join(recommendation.get("recommended_foods", [])) or "No recommendations available.")
+            st.caption("Limit: " + ", ".join(recommendation.get("avoid_or_limit", [])))
+            st.info(recommendation.get("hydration_tip", ""))
+            st.caption(recommendation.get("disclaimer", ""))
+        else:
+            st.error("Food item is required.")
+
+    nutrition_region_filter = st.text_input("Filter nutrition logs by region", placeholder="South")
+    nutrition_logs = list_nutrition_logs(patient_region=nutrition_region_filter, limit=100)
+    if nutrition_logs:
+        st.dataframe(pd.DataFrame(nutrition_logs), use_container_width=True)
+
+    st.markdown("### Indian Health Insurance and Medical History")
+    with st.form("insurance_form"):
+        patient_name = st.text_input("Patient Name", placeholder="Amit Sharma")
+        insurer = st.text_input("Insurer", placeholder="Star Health")
+        policy_number = st.text_input("Policy Number", placeholder="POL123456")
+        policy_type = st.selectbox("Policy Type", ["Individual", "Family Floater", "Senior Citizen", "Corporate"])
+        sum_insured = st.number_input("Sum Insured (INR)", min_value=0.0, value=500000.0, step=10000.0)
+        expiry_date = st.date_input("Policy Expiry Date")
+        network_hospitals = st.text_input("Network Hospitals", placeholder="Apollo, Fortis, Manipal")
+        insurance_submit = st.form_submit_button("Save Insurance Profile")
+
+    if insurance_submit:
+        if patient_name.strip() and insurer.strip() and policy_number.strip():
+            upsert_insurance_profile(
+                patient_name=patient_name.strip(),
+                insurer=insurer.strip(),
+                policy_number=policy_number.strip(),
+                policy_type=policy_type,
+                sum_insured=float(sum_insured),
+                expiry_date=expiry_date.isoformat(),
+                network_hospitals=network_hospitals.strip(),
+            )
+            st.success("Insurance profile saved in MongoDB.")
+        else:
+            st.error("Patient name, insurer, and policy number are required.")
+
+    with st.form("medical_history_form"):
+        mh_patient_name = st.text_input("Patient Name (History)", placeholder="Amit Sharma")
+        condition_name = st.text_input("Condition", placeholder="Hypertension")
+        diagnosis_date = st.date_input("Diagnosis Date")
+        current_medications = st.text_input("Current Medications", placeholder="Amlodipine")
+        allergies = st.text_input("Allergies", placeholder="Penicillin")
+        procedures_done = st.text_input("Procedures", placeholder="Angioplasty")
+        history_notes = st.text_input("Notes", placeholder="Regular BP monitoring")
+        history_submit = st.form_submit_button("Add Medical History Record")
+
+    if history_submit:
+        if mh_patient_name.strip() and condition_name.strip():
+            add_medical_history_record(
+                patient_name=mh_patient_name.strip(),
+                condition_name=condition_name.strip(),
+                diagnosis_date=diagnosis_date.isoformat(),
+                medications=current_medications.strip(),
+                allergies=allergies.strip(),
+                procedures_done=procedures_done.strip(),
+                notes=history_notes.strip(),
+            )
+            st.success("Medical history record saved in MongoDB.")
+        else:
+            st.error("Patient name and condition are required.")
+
+    patient_filter = st.text_input("Filter insurance/history by patient", placeholder="Amit")
+    insurance_rows = list_insurance_profiles(patient_name=patient_filter, limit=50)
+    history_rows = list_medical_history(patient_name=patient_filter, limit=100)
+    if insurance_rows:
+        st.markdown("#### Insurance Profiles")
+        st.dataframe(pd.DataFrame(insurance_rows), use_container_width=True)
+    if history_rows:
+        st.markdown("#### Medical History")
+        st.dataframe(pd.DataFrame(history_rows), use_container_width=True)
+
+    st.markdown("### Regional Health Preferences and Local Doctor Networks")
+    with st.form("regional_pref_form"):
+        rp_patient = st.text_input("Patient Name (Preferences)", placeholder="Amit Sharma")
+        rp_state = st.text_input("State", placeholder="Karnataka")
+        rp_city = st.text_input("City", placeholder="Bengaluru")
+        rp_language = st.selectbox(
+            "Preferred Language",
+            ["English", "Hindi", "Kannada", "Tamil", "Telugu", "Malayalam", "Marathi", "Bengali"],
+        )
+        rp_diet = st.selectbox("Diet Preference", ["Balanced", "Vegetarian", "Non-Vegetarian", "Jain", "Vegan"])
+        rp_mode = st.selectbox("Consultation Mode", ["In-person", "Teleconsultation", "Either"])
+        rp_budget = st.number_input("Max Consultation Budget (INR)", min_value=0.0, value=800.0, step=50.0)
+        rp_specialties = st.text_input("Preferred Specialties", placeholder="General Physician, Diabetologist")
+        pref_submit = st.form_submit_button("Save Regional Preferences")
+
+    if pref_submit:
+        if rp_patient.strip():
+            upsert_regional_preference(
+                patient_name=rp_patient.strip(),
+                state=rp_state.strip(),
+                city=rp_city.strip(),
+                preferred_language=rp_language,
+                diet_preference=rp_diet,
+                consultation_mode=rp_mode,
+                max_budget_inr=float(rp_budget),
+                preferred_specialties=rp_specialties.strip(),
+            )
+            st.success("Regional preferences saved in MongoDB.")
+        else:
+            st.error("Patient name is required.")
+
+    specialty_query = st.text_input("Search specialty in local network", placeholder="General Physician")
+    local_doctors = indian_health.get_local_doctor_network(
+        city=rp_city,
+        state=rp_state,
+        specialty=specialty_query,
+        preferred_language=rp_language,
+        max_fee_inr=float(rp_budget),
+    )
+    practo_local = indian_health.search_practo_doctors(rp_city, specialty_query or "General Physician", limit=5)
+
+    if local_doctors:
+        st.markdown("#### Local Doctor Network")
+        st.dataframe(pd.DataFrame(local_doctors), use_container_width=True)
+    else:
+        st.info("No local doctor network entries match current filters.")
+
+    if practo_local:
+        st.markdown("#### Practo Results for Region")
+        st.dataframe(pd.DataFrame(practo_local), use_container_width=True)
+
+    pref_filter = st.text_input("Filter saved preferences by patient", placeholder="Amit")
+    pref_rows = list_regional_preferences(patient_name=pref_filter, limit=50)
+    if pref_rows:
+        st.markdown("#### Saved Regional Preferences")
+        st.dataframe(pd.DataFrame(pref_rows), use_container_width=True)

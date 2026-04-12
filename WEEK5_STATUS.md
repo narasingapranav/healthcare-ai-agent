@@ -3,8 +3,11 @@
 ## Checklist mapping (from project brief)
 
 - [x] Integrate Indian health platforms (1mg, Practo APIs)
-- [x] Add MongoDB database support for Indian medication records
+- [x] Add MongoDB database for Indian medication records
 - [x] Create Ayurvedic medicine information integration
+- [x] Implement Indian dietary recommendations and nutrition tracking
+- [x] Add support for Indian health insurance and medical history
+- [x] Handle regional health preferences and local doctor networks
 
 ## Implemented in app
 
