@@ -65,6 +65,7 @@ The application prioritizes **data accuracy**, **comprehensive error handling**,
 
 ### AI & Analytics
 ✅ **Health Chatbot**: AI-powered Q&A using configurable LLM (Groq, OpenAI, Google)  
+✅ **Dedicated Chatbot Panel**: Separate conversational workspace with session-based history and provider controls  
 ✅ **Medication Interaction Warnings**: Real-time alerts for known drug combinations  
 ✅ **Health Report Generation**: Exportable PDFs with trend summaries  
 ✅ **Medical Information Lookup**: Curated disease/condition information with citations  
@@ -213,6 +214,8 @@ By default, the app uses **Groq** (free tier available). To switch providers:
 # In src/config.py, the LLM_PROVIDER is read from .env
 # USE_LLM=false will disable AI features but keep the app functional
 ```
+
+You can also provide the API key directly in the dedicated Chatbot Panel during a session, or store it in `.env` for repeat use.
 
 #### API Integration (India-Specific)
 

@@ -2,6 +2,7 @@ import pandas as pd
 import streamlit as st
 
 from src.chatbot import HealthChatbot
+from src.config import get_groq_api_key, get_llm_provider, get_use_llm
 from src.data_io import (
     export_metrics_to_csv,
     export_metrics_to_json,
@@ -146,8 +147,26 @@ st.markdown(
 )
 
 init_db()
-chatbot = HealthChatbot()
 indian_health = IndianHealthService()
+
+if "llm_provider" not in st.session_state:
+    st.session_state.llm_provider = get_llm_provider()
+if "use_llm" not in st.session_state:
+    st.session_state.use_llm = get_use_llm()
+if "chat_history" not in st.session_state:
+    st.session_state.chat_history = []
+
+
+def build_chatbot() -> HealthChatbot:
+    return HealthChatbot(
+        provider="groq",
+        groq_api_key=get_groq_api_key() or None,
+        use_llm=bool(st.session_state.get("use_llm") or get_groq_api_key()),
+    )
+
+
+def is_groq_ready() -> bool:
+    return bool(get_groq_api_key())
 
 st.markdown(
     """
@@ -170,6 +189,7 @@ with st.sidebar:
         "Select Workspace",
         [
             "Health Dashboard",
+            "Chatbot Panel",
             "Medication Scheduler",
             "Health Metrics",
             "Goals & Progress",
@@ -242,7 +262,7 @@ if selected_section == "Health Dashboard":
     st.markdown("### Health Assistant")
     question = st.text_input("Ask a health-related question", placeholder="How can I track my steps better?")
     if st.button("Get Guidance", type="primary"):
-        response = chatbot.answer(question)
+        response = build_chatbot().answer(question)
         st.write(response)
 
     st.divider()
@@ -267,6 +287,55 @@ if selected_section == "Health Dashboard":
                 st.markdown("Reliable source citations:")
                 for source in citations:
                     st.write(f"- {source}")
+
+if selected_section == "Chatbot Panel":
+    st.markdown("<div class='section-title'>Chatbot Panel</div>", unsafe_allow_html=True)
+    st.markdown("<div class='section-note'>Dedicated conversational workspace for safe health guidance, reminders, and quick follow-up questions.</div>", unsafe_allow_html=True)
+
+    chat_col, settings_col = st.columns([2.2, 1])
+
+    with settings_col:
+        st.markdown("### Model Settings")
+        if is_groq_ready():
+            st.success("Groq API connected")
+        else:
+            st.warning("Add GROQ_API_KEY to .env to enable live answers")
+        if st.button("Clear Chat History"):
+            st.session_state.chat_history = []
+            st.rerun()
+
+        st.divider()
+        st.markdown("### Quick Prompts")
+        quick_prompts = [
+            "How can I improve medication adherence?",
+            "What should I track for daily wellness?",
+            "When should I seek urgent medical help?",
+        ]
+        for prompt_text in quick_prompts:
+            if st.button(prompt_text, key=f"quick_{prompt_text}"):
+                st.session_state.chat_history.append({"role": "user", "content": prompt_text})
+                st.rerun()
+
+    with chat_col:
+        st.markdown("### Conversation")
+        st.caption("Use the panel to ask health-related questions. The assistant keeps responses brief and non-diagnostic.")
+
+        for entry in st.session_state.chat_history:
+            with st.chat_message(entry["role"]):
+                st.markdown(entry["content"])
+
+        prompt = st.chat_input("Ask about medications, metrics, reminders, or general wellness")
+        if prompt:
+            chatbot = build_chatbot()
+            st.session_state.chat_history.append({"role": "user", "content": prompt})
+            with st.chat_message("user"):
+                st.markdown(prompt)
+
+            with st.chat_message("assistant"):
+                response = chatbot.answer(prompt)
+                st.markdown(response)
+
+            st.session_state.chat_history.append({"role": "assistant", "content": response})
 
 if selected_section == "Medication Scheduler":
     st.markdown("<div class='section-title'>Medication Scheduler</div>", unsafe_allow_html=True)
