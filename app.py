@@ -2,7 +2,7 @@ import pandas as pd
 import streamlit as st
 
 from src.chatbot import HealthChatbot
-from src.config import get_groq_api_key, get_llm_provider, get_use_llm
+from src.config import get_groq_api_key, get_llm_provider, get_use_llm, get_openai_api_key, get_google_api_key
 from src.data_io import (
     export_metrics_to_csv,
     export_metrics_to_json,
@@ -158,15 +158,26 @@ if "chat_history" not in st.session_state:
 
 
 def build_chatbot() -> HealthChatbot:
+    provider = st.session_state.get("llm_provider") or get_llm_provider()
     return HealthChatbot(
-        provider="groq",
+        provider=provider,
         groq_api_key=get_groq_api_key() or None,
-        use_llm=bool(st.session_state.get("use_llm") or get_groq_api_key()),
+        openai_api_key=get_openai_api_key() or None,
+        google_api_key=get_google_api_key() or None,
+        use_llm=bool(st.session_state.get("use_llm")),
     )
 
 
 def is_groq_ready() -> bool:
-    return bool(get_groq_api_key())
+    provider = (st.session_state.get("llm_provider") or get_llm_provider()).lower()
+    if provider == "groq":
+        return bool(get_groq_api_key())
+    elif provider == "openai":
+        return bool(get_openai_api_key())
+    elif provider == "google":
+        return bool(get_google_api_key())
+    return False
+
 
 st.markdown(
     """
@@ -296,10 +307,11 @@ if selected_section == "Chatbot Panel":
 
     with settings_col:
         st.markdown("### Model Settings")
+        provider = (st.session_state.get("llm_provider") or get_llm_provider()).lower()
         if is_groq_ready():
-            st.success("Groq API connected")
+            st.success(f"{provider.upper()} API connected")
         else:
-            st.warning("Add GROQ_API_KEY to .env to enable live answers")
+            st.warning(f"Add {provider.upper()}_API_KEY to .env to enable live answers")
         if st.button("Clear Chat History"):
             st.session_state.chat_history = []
             st.rerun()

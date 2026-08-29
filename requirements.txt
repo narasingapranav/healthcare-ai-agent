@@ -6,3 +6,4 @@ langchain-groq>=0.2.4
 langchain-google-genai>=2.1.10
 python-dotenv>=1.0.1
 pymongo>=4.10.1
+langchain-community>=0.3.0
